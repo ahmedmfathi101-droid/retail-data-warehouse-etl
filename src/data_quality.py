@@ -7,6 +7,11 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 
 from src.load_snowflake import _connect_to_snowflake, _is_enabled as snowflake_is_enabled
+from src.transform import (
+    PRODUCT_NAME_MAX_WORDS,
+    has_trailing_product_name_noise,
+    product_name_word_count,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,11 +64,28 @@ def validate_clean_file(clean_file_path):
         failures.append(f"Row count {row_count} is below DQ_MIN_ROWS={min_rows}")
 
     if not missing_columns and row_count > 0:
-        required_non_null = ["sku", "title", "price"]
+        required_non_null = ["sku", "title", "Product Name", "price", "Device type"]
         null_counts = df[required_non_null].isna().sum().to_dict()
         bad_nulls = {key: int(value) for key, value in null_counts.items() if value > 0}
         if bad_nulls:
             failures.append(f"Null values found in required fields: {bad_nulls}")
+
+        blank_product_names = int((df["Product Name"].astype(str).str.strip() == "").sum())
+        if blank_product_names:
+            failures.append(f"Blank Product Name values found: {blank_product_names}")
+
+        trailing_noise_count = int(df["Product Name"].apply(has_trailing_product_name_noise).sum())
+        if trailing_noise_count:
+            failures.append(
+                "Product Name values ending with a preposition, conjunction, or standalone number "
+                f"found: {trailing_noise_count}"
+            )
+
+        long_product_names = int((df["Product Name"].apply(product_name_word_count) > PRODUCT_NAME_MAX_WORDS).sum())
+        if long_product_names:
+            failures.append(
+                f"Product Name values longer than {PRODUCT_NAME_MAX_WORDS} words found: {long_product_names}"
+            )
 
         duplicated_skus = int(df.duplicated(subset=["sku"]).sum())
         if duplicated_skus:

@@ -3,6 +3,13 @@ from sqlalchemy import create_engine, text
 import os
 import logging
 
+from src.transform import (
+    PRODUCT_NAME_MAX_WORDS,
+    extract_product_name,
+    has_trailing_product_name_noise,
+    product_name_word_count,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -13,6 +20,47 @@ engine = create_engine(conn_str)
 
 def _clean_value(value):
     return None if pd.isna(value) else value
+
+
+def _product_name_needs_refresh(product_name):
+    if pd.isna(product_name):
+        return True
+
+    product_name = str(product_name).strip()
+    return (
+        not product_name
+        or has_trailing_product_name_noise(product_name)
+        or product_name_word_count(product_name) > PRODUCT_NAME_MAX_WORDS
+    )
+
+
+def _backfill_product_names(conn):
+    rows = conn.execute(text("SELECT product_id, title, product_name FROM dim_products")).mappings().all()
+    updated_count = 0
+
+    for row in rows:
+        if not _product_name_needs_refresh(row["product_name"]):
+            continue
+
+        product_name = extract_product_name(row["title"])
+        if not product_name:
+            continue
+
+        conn.execute(
+            text(
+                """
+                UPDATE dim_products
+                SET product_name = :product_name,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE product_id = :product_id
+                """
+            ),
+            {"product_name": product_name, "product_id": row["product_id"]},
+        )
+        updated_count += 1
+
+    if updated_count:
+        logger.info("Backfilled Product Name for %s existing PostgreSQL products.", updated_count)
 
 
 def _ensure_current_schema(conn):
@@ -42,6 +90,7 @@ def _ensure_current_schema(conn):
     conn.execute(text("ALTER TABLE dim_products DROP COLUMN IF EXISTS brand;"))
     conn.execute(text("ALTER TABLE fact_product_snapshots DROP COLUMN IF EXISTS review_count;"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_products_sku ON dim_products(sku);"))
+    _backfill_product_names(conn)
 
 
 def load_data(clean_file_path):

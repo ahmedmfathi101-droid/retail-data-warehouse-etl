@@ -46,7 +46,8 @@ PostgreSQL DW          Snowflake DW
 - Loads dimensional warehouse tables into PostgreSQL.
 - Loads the same warehouse model into Snowflake.
 - Uses upsert logic for product dimension records.
-- Inserts historical snapshot facts for price, rating, and review tracking.
+- Backfills `PRODUCT_NAME` for existing warehouse rows when the naming rule changes.
+- Inserts historical snapshot facts for price and rating tracking.
 - Runs data quality validation before loading.
 - Runs freshness checks after warehouse loading.
 - Provides analytical SQL queries for business insights.
@@ -285,6 +286,9 @@ The `validate_clean_product_data` task checks:
 - Critical fields are not null.
 - Prices are not negative.
 - Ratings are between 0 and 5.
+- `Product Name` is not blank.
+- `Product Name` is capped at five words.
+- `Product Name` does not end with a preposition, conjunction, or standalone number.
 - Duplicate `sku` rows are removed during transformation.
 
 The latest quality report is written to:
@@ -331,6 +335,7 @@ Included query themes:
 - Highest rated products
 - Largest observed price changes
 - Warehouse freshness monitoring
+- Product name quality audit
 
 ## Power BI Dashboard
 

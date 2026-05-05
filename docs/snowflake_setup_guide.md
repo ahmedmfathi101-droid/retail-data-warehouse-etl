@@ -94,6 +94,19 @@ SELECT COUNT(*) FROM FACT_PRODUCT_SNAPSHOTS;
 SELECT MAX(SNAPSHOT_TIMESTAMP) FROM FACT_PRODUCT_SNAPSHOTS;
 ```
 
+Validate the cleaned product naming fields:
+
+```sql
+SELECT SKU, PRODUCT_NAME, DEVICE_TYPE
+FROM DIM_PRODUCTS
+WHERE PRODUCT_NAME IS NOT NULL
+LIMIT 20;
+```
+
+`PRODUCT_NAME` should contain at most five words and should not end with a preposition, conjunction, or standalone number.
+
+The Snowflake load step also backfills `PRODUCT_NAME` for existing rows when the naming rule changes.
+
 ## 7. Dashboard Source
 
 Use Power BI to connect to Snowflake and load:

@@ -81,3 +81,21 @@ SELECT
     MAX(snapshot_timestamp) AS latest_snapshot,
     DATEDIFF('hour', MAX(snapshot_timestamp), CURRENT_TIMESTAMP()) AS age_hours
 FROM fact_product_snapshots;
+
+-- 7. Product name quality audit
+SELECT
+    product_id,
+    sku,
+    product_name,
+    title
+FROM dim_products
+WHERE product_name IS NULL
+   OR TRIM(product_name) = ''
+   OR ARRAY_SIZE(SPLIT(TRIM(product_name), ' ')) > 5
+   OR LOWER(REGEXP_SUBSTR(TRIM(product_name), '[^ ]+$')) IN (
+        'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from',
+        'in', 'into', 'nor', 'of', 'on', 'onto', 'or', 'per',
+        'so', 'than', 'the', 'to', 'up', 'via', 'vs', 'with',
+        'without', 'yet'
+   )
+   OR REGEXP_LIKE(REGEXP_SUBSTR(TRIM(product_name), '[^ ]+$'), '^[0-9]+([.,][0-9]+)?$');

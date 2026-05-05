@@ -20,6 +20,7 @@ CLEAN_COLUMNS = [
 ]
 
 PRODUCT_NAME_STOP_WORDS = {'for', 'to', 'up'}
+PRODUCT_NAME_MAX_WORDS = 5
 PRODUCT_NAME_TRAILING_STOP_WORDS = {
     'a',
     'an',
@@ -67,6 +68,18 @@ def _remove_trailing_product_name_noise(words):
     return words
 
 
+def has_trailing_product_name_noise(product_name):
+    if not isinstance(product_name, str) or not product_name.strip():
+        return False
+    return _is_trailing_product_name_noise(product_name.strip().split()[-1])
+
+
+def product_name_word_count(product_name):
+    if not isinstance(product_name, str) or not product_name.strip():
+        return 0
+    return len(product_name.strip().split())
+
+
 def extract_product_name(title):
     """
     Builds a short product name from the title.
@@ -83,9 +96,11 @@ def extract_product_name(title):
         if PRODUCT_NAME_SEPARATOR_PATTERN.search(raw_token):
             before_separator = PRODUCT_NAME_SEPARATOR_PATTERN.split(raw_token, maxsplit=1)[0]
             before_separator = re.sub(r'^[^\w]+|[^\w]+$', '', before_separator)
-            if before_separator:
+            if before_separator and not _is_trailing_product_name_noise(before_separator):
                 words.append(before_separator)
-            break
+            if words:
+                break
+            continue
 
         token = raw_token.strip()
         cleaned_token = re.sub(r'^[^\w]+|[^\w]+$', '', token)
@@ -98,7 +113,7 @@ def extract_product_name(title):
             continue
 
         words.append(cleaned_token)
-        if len(words) == 5:
+        if len(words) == PRODUCT_NAME_MAX_WORDS:
             break
 
     words = _remove_trailing_product_name_noise(words)

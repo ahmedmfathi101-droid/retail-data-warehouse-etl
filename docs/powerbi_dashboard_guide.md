@@ -28,6 +28,14 @@ Recommended date column:
 FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_DATE]
 ```
 
+Recommended product display column:
+
+```text
+DIM_PRODUCTS[PRODUCT_NAME]
+```
+
+`PRODUCT_NAME` is generated from the full title and cleaned to avoid trailing prepositions, conjunctions, and standalone numbers.
+
 ## Core Measures
 
 ```DAX
@@ -60,5 +68,5 @@ Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 
 - Card: Latest Snapshot.
 - Card: Snapshot Count.
-- Table: products with null rating or missing product name.
+- Table: products with null rating, missing product name, or product names longer than five words.
 - Alert rule in Power BI Service when Latest Snapshot is older than the expected schedule.

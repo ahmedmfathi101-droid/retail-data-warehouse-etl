@@ -1,8 +1,16 @@
 import logging
 import os
 import re
+from itertools import islice
 
 import pandas as pd
+
+from src.transform import (
+    PRODUCT_NAME_MAX_WORDS,
+    extract_product_name,
+    has_trailing_product_name_noise,
+    product_name_word_count,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -153,6 +161,203 @@ def _drop_column_if_exists(cursor, table_name, column_name):
         cursor.execute(f"ALTER TABLE {table_name} DROP COLUMN {column_name}")
 
 
+def _chunked(items, size):
+    iterator = iter(items)
+    while True:
+        chunk = list(islice(iterator, size))
+        if not chunk:
+            break
+        yield chunk
+
+
+def _product_name_needs_refresh(product_name):
+    if pd.isna(product_name):
+        return True
+
+    product_name = str(product_name).strip()
+    return (
+        not product_name
+        or has_trailing_product_name_noise(product_name)
+        or product_name_word_count(product_name) > PRODUCT_NAME_MAX_WORDS
+    )
+
+
+def _backfill_product_names(cursor):
+    cursor.execute("SELECT product_id, title, product_name FROM dim_products")
+    rows = cursor.fetchall()
+    updates = []
+
+    for product_id, title, product_name in rows:
+        if not _product_name_needs_refresh(product_name):
+            continue
+
+        generated_product_name = extract_product_name(title)
+        if not generated_product_name:
+            continue
+
+        updates.append(
+            {"product_id": product_id, "product_name": generated_product_name}
+        )
+
+    if not updates:
+        return
+
+    for chunk_index, chunk in enumerate(_chunked(updates, 100)):
+        params = {}
+        case_lines = []
+        id_placeholders = []
+
+        for row_index, row in enumerate(chunk):
+            suffix = f"{chunk_index}_{row_index}"
+            product_id_key = f"product_id_{suffix}"
+            product_name_key = f"product_name_{suffix}"
+            params[product_id_key] = row["product_id"]
+            params[product_name_key] = row["product_name"]
+            case_lines.append(f"WHEN product_id = %({product_id_key})s THEN %({product_name_key})s")
+            id_placeholders.append(f"%({product_id_key})s")
+
+        cursor.execute(
+            f"""
+            UPDATE dim_products
+            SET product_name = CASE
+                    {' '.join(case_lines)}
+                    ELSE product_name
+                END,
+                updated_at = CURRENT_TIMESTAMP()
+            WHERE product_id IN ({', '.join(id_placeholders)})
+            """,
+            params,
+        )
+
+    logger.info("Backfilled Product Name for %s existing Snowflake products.", len(updates))
+
+
+def _create_clean_products_stage(cursor):
+    cursor.execute("DROP TABLE IF EXISTS clean_products_stage")
+    cursor.execute(
+        """
+        CREATE TEMPORARY TABLE clean_products_stage (
+            sku VARCHAR,
+            title VARCHAR,
+            product_name VARCHAR,
+            device_type VARCHAR(255),
+            product_url VARCHAR,
+            image_url VARCHAR,
+            price NUMBER(10, 2),
+            rating NUMBER(3, 2)
+        )
+        """
+    )
+
+
+def _insert_stage_rows(cursor, df):
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "sku": str(row["sku"]),
+                "title": str(row["title"]),
+                "product_name": _clean_value(row["Product Name"]),
+                "device_type": _clean_value(row["Device type"]),
+                "product_url": _clean_value(row["product_url"]),
+                "image_url": _clean_value(row["image_url"]),
+                "price": _clean_value(row["price"]),
+                "rating": _clean_value(row["rating"]),
+            }
+        )
+
+    for chunk_index, chunk in enumerate(_chunked(rows, 100)):
+        params = {}
+        select_lines = []
+        columns = [
+            "sku",
+            "title",
+            "product_name",
+            "device_type",
+            "product_url",
+            "image_url",
+            "price",
+            "rating",
+        ]
+
+        for row_index, row in enumerate(chunk):
+            suffix = f"{chunk_index}_{row_index}"
+            placeholders = []
+            for column in columns:
+                key = f"{column}_{suffix}"
+                params[key] = row[column]
+                placeholders.append(f"%({key})s")
+            select_lines.append("SELECT " + ", ".join(placeholders))
+
+        cursor.execute(
+            f"""
+            INSERT INTO clean_products_stage (
+                sku, title, product_name, device_type, product_url, image_url, price, rating
+            )
+            {' UNION ALL '.join(select_lines)}
+            """,
+            params,
+        )
+
+
+def _merge_staged_products(cursor):
+    cursor.execute(
+        """
+        MERGE INTO dim_products AS target
+        USING (
+            SELECT
+                sku,
+                title,
+                product_name,
+                device_type,
+                product_url,
+                image_url
+            FROM clean_products_stage
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY sku ORDER BY sku) = 1
+        ) AS source
+        ON target.sku = source.sku
+        WHEN MATCHED THEN UPDATE SET
+            title = source.title,
+            product_name = source.product_name,
+            device_type = source.device_type,
+            product_url = source.product_url,
+            image_url = source.image_url,
+            updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN INSERT (
+            sku, title, product_name, device_type, product_url, image_url
+        ) VALUES (
+            source.sku, source.title, source.product_name, source.device_type, source.product_url, source.image_url
+        )
+        """
+    )
+
+
+def _insert_staged_snapshots(cursor):
+    cursor.execute(
+        """
+        INSERT INTO fact_product_snapshots (product_id, price, rating)
+        SELECT
+            products.product_id,
+            stage.price,
+            stage.rating
+        FROM clean_products_stage AS stage
+        JOIN dim_products AS products
+            ON products.sku = stage.sku
+        """
+    )
+
+
+def _load_staged_products(cursor, df):
+    if df.empty:
+        logger.info("No rows to load into Snowflake.")
+        return
+
+    _create_clean_products_stage(cursor)
+    _insert_stage_rows(cursor, df)
+    _merge_staged_products(cursor)
+    _insert_staged_snapshots(cursor)
+
+
 def _ensure_current_schema(cursor):
     """
     Evolves existing Snowflake tables from the older platform/brand/review_count
@@ -173,70 +378,7 @@ def _ensure_current_schema(cursor):
     _drop_column_if_exists(cursor, "dim_products", "platform")
     _drop_column_if_exists(cursor, "dim_products", "brand")
     _drop_column_if_exists(cursor, "fact_product_snapshots", "review_count")
-
-
-def _upsert_product(cursor, row):
-    params = {
-        "sku": str(row["sku"]),
-        "title": str(row["title"]),
-        "product_name": _clean_value(row["Product Name"]),
-        "device_type": _clean_value(row["Device type"]),
-        "product_url": _clean_value(row["product_url"]),
-        "image_url": _clean_value(row["image_url"]),
-    }
-
-    cursor.execute(
-        """
-        MERGE INTO dim_products AS target
-        USING (
-            SELECT
-                %(sku)s AS sku,
-                %(title)s AS title,
-                %(product_name)s AS product_name,
-                %(device_type)s AS device_type,
-                %(product_url)s AS product_url,
-                %(image_url)s AS image_url
-        ) AS source
-        ON target.sku = source.sku
-        WHEN MATCHED THEN UPDATE SET
-            title = source.title,
-            product_name = source.product_name,
-            device_type = source.device_type,
-            product_url = source.product_url,
-            image_url = source.image_url,
-            updated_at = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN INSERT (
-            sku, title, product_name, device_type, product_url, image_url
-        ) VALUES (
-            source.sku, source.title, source.product_name, source.device_type, source.product_url, source.image_url
-        )
-        """,
-        params,
-    )
-
-    cursor.execute(
-        """
-        SELECT product_id
-        FROM dim_products
-        WHERE sku = %(sku)s
-        """,
-        {"sku": params["sku"]},
-    )
-    return cursor.fetchone()[0]
-
-
-def _insert_snapshot(cursor, product_id, row):
-    cursor.execute(
-        """
-        INSERT INTO fact_product_snapshots (product_id, price, rating)
-        VALUES (%(product_id)s, %(price)s, %(rating)s)
-        """,
-        {
-            "product_id": product_id,
-            "price": _clean_value(row["price"]),
-            "rating": _clean_value(row["rating"]),
-        },
-    )
+    _backfill_product_names(cursor)
 
 
 def load_data_to_snowflake(clean_file_path):
@@ -266,9 +408,7 @@ def load_data_to_snowflake(clean_file_path):
         try:
             _create_tables(cursor)
             _ensure_current_schema(cursor)
-            for _, row in df.iterrows():
-                product_id = _upsert_product(cursor, row)
-                _insert_snapshot(cursor, product_id, row)
+            _load_staged_products(cursor, df)
             conn.commit()
             logger.info("Successfully loaded data into Snowflake.")
         except Exception:
