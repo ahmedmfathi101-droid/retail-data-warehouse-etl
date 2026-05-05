@@ -1,76 +1,121 @@
-# Amazon Egypt Retail Scraper & ETL Pipeline
+# Retail Data Warehouse ETL - Amazon Egypt
 
-This repository contains an end-to-end Extract, Transform, Load (ETL) pipeline that scrapes near real-time retail data from Amazon Egypt (`amazon.eg`), cleans and transforms it with `pandas`, and loads it into PostgreSQL and Snowflake. The pipeline is orchestrated and scheduled with Apache Airflow and runs through Docker Compose.
+An end-to-end data engineering project that extracts near real-time retail product data from Amazon Egypt (`amazon.eg`) using web scraping, cleans and transforms it with `pandas`, and loads it into PostgreSQL and Snowflake data warehouses. The workflow is orchestrated and scheduled with Apache Airflow.
 
-## Project Overview
+## Overview
 
-The project demonstrates a data engineering workflow for collecting product search data without relying on an external API. It uses `requests` and `BeautifulSoup` with User-Agent rotation to fetch live Amazon Egypt search results for categories such as laptops, smartphones, headphones, and televisions.
+This project demonstrates a production-style ETL pipeline for retail analytics without relying on a public API. The scraper collects product search results from Amazon Egypt, the transformation layer standardizes the raw data, and the load layer persists historical product snapshots for analysis and dashboarding.
 
-## Key Features
+The pipeline includes data quality checks, warehouse freshness validation, analytical SQL queries, and a Power BI dashboard guide.
 
-- Web scraping for ASINs, titles, prices, ratings, review counts, image URLs, and product URLs.
-- Data transformation with `pandas` for numeric price, rating, and review fields.
-- PostgreSQL warehouse modeled with `dim_products` and `fact_product_snapshots`.
-- Optional Snowflake warehouse load using the same dimensional model.
-- Upsert loading for product dimension records and snapshot inserts for price/rating history.
-- Data quality validation before loading warehouse tables.
-- Automated warehouse freshness checks after loading.
-- Analytical SQL queries for business insights.
-- Power BI dashboard guide for core metrics and trends.
-- Airflow DAG for scheduled extract, transform, and load tasks.
-- Docker Compose setup for PostgreSQL, Airflow webserver, scheduler, and initialization.
+## Architecture
 
-## Limitations
+```text
+Amazon Egypt Search Pages
+        |
+        v
+Python Scraper (requests + BeautifulSoup)
+        |
+        v
+Raw JSON in data/
+        |
+        v
+pandas Transformation + Data Quality Checks
+        |
+        +--------------------+
+        |                    |
+        v                    v
+PostgreSQL DW          Snowflake DW
+        |                    |
+        +---------+----------+
+                  v
+          Analytical SQL / Power BI
+```
 
-Amazon uses strict bot protection. This scraper is intended for education and portfolio demonstration. It includes delays and User-Agent rotation, but it may still receive 503/CAPTCHA responses. A successful run is expected to collect a limited sample rather than a large catalog.
+## Features
+
+- Scrapes Amazon Egypt product listings for ASIN, title, price, rating, review count, image URL, product URL, and category.
+- Cleans and standardizes product data using `pandas`.
+- Removes duplicate products within each batch before warehouse loading.
+- Loads product dimensions and snapshot facts into PostgreSQL.
+- Loads the same dimensional model into Snowflake.
+- Uses Airflow to orchestrate extraction, transformation, validation, loading, and freshness checks.
+- Includes data quality validation before loading.
+- Includes warehouse freshness checks after loading.
+- Provides analytical SQL queries for business insights.
+- Provides Power BI dashboard guidance for metrics and trends.
 
 ## Technology Stack
 
-- Python 3.9+
+- Python
 - pandas
 - requests
 - BeautifulSoup
 - SQLAlchemy
 - PostgreSQL 13
 - Snowflake
-- Apache Airflow 2.8+
-- Docker and Docker Compose
+- Apache Airflow 2.8
+- Docker Compose
+- Power BI
 
 ## Project Structure
 
 ```text
 retail-data-warehouse-etl/
-|-- dags/                        # Airflow DAGs
+|-- dags/
 |   `-- amazon_eg_etl_dag.py
-|-- src/                         # Core Python modules
-|   |-- extract.py               # Amazon EG web scraper logic
-|   |-- transform.py             # Data cleaning logic
-|   |-- load.py                  # PostgreSQL insertion/upsert logic
-|   `-- load_snowflake.py        # Optional Snowflake insertion/upsert logic
-|-- sql/                         # SQL scripts
-|   |-- create_tables.sql        # DDL for the data warehouse
-|   |-- analytical_queries.sql    # Insight queries for Snowflake/BI
-|   `-- init_db.sh               # PostgreSQL initialization script
-|-- docs/                        # Dashboard and usage documentation
-|   |-- system_check_report.md
+|-- src/
+|   |-- extract.py
+|   |-- transform.py
+|   |-- load.py
+|   |-- load_snowflake.py
+|   `-- data_quality.py
+|-- sql/
+|   |-- create_tables.sql
+|   |-- analytical_queries.sql
+|   `-- init_db.sh
+|-- docs/
 |   |-- snowflake_setup_guide.md
-|   `-- powerbi_dashboard_guide.md
-|-- config/                      # Configuration files
-|-- data/                        # Local storage for intermediate CSV/JSON files
-|-- docker-compose.yml           # Docker services configuration
-|-- requirements.txt             # Python dependencies
-|-- .env.example                 # Example environment variables
-`-- .env                         # Local environment variables, not committed
+|   |-- powerbi_dashboard_guide.md
+|   `-- system_check_report.md
+|-- config/
+|-- data/
+|-- docker-compose.yml
+|-- requirements.txt
+|-- .env.example
+`-- .gitignore
+```
+
+## Data Model
+
+The warehouse uses a simple dimensional model:
+
+- `DIM_PRODUCTS`: one row per platform/product SKU.
+- `FACT_PRODUCT_SNAPSHOTS`: historical observations of price, rating, and review count.
+
+This design supports trend analysis, price movement tracking, category comparisons, and dashboard freshness monitoring.
+
+## Airflow DAG
+
+DAG name:
+
+```text
+amazon_eg_etl
+```
+
+Task flow:
+
+```text
+scrape_amazon_eg_data
+    -> transform_amazon_eg_data
+    -> validate_clean_product_data
+    -> [load_amazon_eg_data_to_postgres, load_amazon_eg_data_to_snowflake]
+    -> check_warehouse_freshness
 ```
 
 ## Setup
 
-### Prerequisites
-
-- Docker
-- Docker Compose
-
-### 1. Configure Environment Variables
+### 1. Create Environment File
 
 Copy the example environment file:
 
@@ -78,7 +123,19 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Edit `.env` if you want different local credentials.
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### 2. Configure Environment Variables
+
+PostgreSQL is preconfigured for Docker Compose:
+
+```env
+DW_CONN_STR=postgresql+psycopg2://dw_user:dw_pass@postgres/retail_dw
+```
 
 Data quality and freshness controls:
 
@@ -87,11 +144,10 @@ DQ_MIN_ROWS=1
 DATA_FRESHNESS_MAX_HOURS=30
 ```
 
-`DQ_MIN_ROWS` prevents empty or blocked scrape runs from silently loading. `DATA_FRESHNESS_MAX_HOURS` controls the maximum allowed warehouse data age after the load step.
-
-To enable Snowflake loading, set `SNOWFLAKE_ENABLED=true` and fill in these values:
+Snowflake configuration:
 
 ```env
+SNOWFLAKE_ENABLED=true
 SNOWFLAKE_ACCOUNT=your_account_identifier
 SNOWFLAKE_USER=your_username
 SNOWFLAKE_PASSWORD=your_password
@@ -101,46 +157,158 @@ SNOWFLAKE_SCHEMA=PUBLIC
 SNOWFLAKE_ROLE=
 ```
 
-`SNOWFLAKE_ACCOUNT` is the account identifier from your Snowflake URL, for example the part before `.snowflakecomputing.com`.
+`SNOWFLAKE_ACCOUNT` is the account identifier from the Snowflake URL. Example:
 
-Full Snowflake setup and load instructions are available in `docs/snowflake_setup_guide.md`.
-
-### 2. Start the Services
-
-```bash
-docker-compose up -d
+```text
+https://abc12345.us-east-1.snowflakecomputing.com
 ```
 
-This starts PostgreSQL, creates the `retail_dw` warehouse schema, initializes Airflow, and runs the Airflow webserver and scheduler. If Snowflake is enabled, the DAG creates the Snowflake tables automatically during the load step.
+Use:
+
+```env
+SNOWFLAKE_ACCOUNT=abc12345.us-east-1
+```
+
+Full Snowflake instructions are available in [docs/snowflake_setup_guide.md](docs/snowflake_setup_guide.md).
+
+### 3. Start Services
+
+```bash
+docker compose up -d
+```
+
+This starts:
+
+- PostgreSQL
+- Airflow webserver
+- Airflow scheduler
+- Airflow initialization service
+
+Airflow UI:
+
+```text
+http://localhost:8080
+```
+
+Default credentials:
+
+```text
+admin / admin
+```
 
 ## Running the Pipeline
 
-1. Open the Airflow UI at `http://localhost:8080`.
-2. Log in with the default credentials from `.env.example`: `admin` / `admin`.
-3. Find the `amazon_eg_etl` DAG.
+From the Airflow UI:
+
+1. Open `http://localhost:8080`.
+2. Log in with `admin / admin`.
+3. Open the `amazon_eg_etl` DAG.
 4. Unpause the DAG.
-5. Trigger the DAG manually or wait for the daily schedule.
+5. Trigger it manually or wait for the scheduled run.
 
-## Output
+From the terminal:
 
-The scraper writes raw JSON into `data/`, the transform step writes cleaned CSV output into the same folder, and the load steps insert the cleaned records into PostgreSQL and Snowflake when enabled.
+```bash
+docker compose exec airflow-scheduler airflow dags trigger amazon_eg_etl
+```
 
-## Data Quality and Freshness
+Check task states:
 
-The Airflow DAG includes:
+```bash
+docker compose exec airflow-scheduler airflow tasks states-for-dag-run amazon_eg_etl <dag_run_id>
+```
 
-- `validate_clean_product_data`: checks required columns, minimum row count, nulls in critical fields, invalid prices, invalid ratings, and invalid review counts.
-- `check_warehouse_freshness`: verifies that warehouse snapshots were updated recently after the load step.
+## Data Quality
 
-The data quality task writes `data/data_quality_report.json` for auditability.
+The `validate_clean_product_data` task checks:
 
-The latest local system validation summary is available in `docs/system_check_report.md`.
+- Required columns exist.
+- Row count is above `DQ_MIN_ROWS`.
+- Required fields are not null.
+- Prices are not negative.
+- Ratings are between 0 and 5.
+- Review counts are not negative.
+- Duplicate `platform`/`sku` rows are removed during transformation.
 
-## Analytics and Dashboard
+The latest quality report is written to:
 
-Useful SQL queries are available in `sql/analytical_queries.sql`, including KPI summary, category performance, price trends, top reviewed products, price movement, and freshness monitoring.
+```text
+data/data_quality_report.json
+```
 
-Power BI dashboard setup is documented in `docs/powerbi_dashboard_guide.md`. Use Snowflake as the main live dashboard source and connect `DIM_PRODUCTS` to `FACT_PRODUCT_SNAPSHOTS` by `PRODUCT_ID`.
+## Freshness Checks
+
+The `check_warehouse_freshness` task verifies that warehouse snapshots were updated recently. The maximum allowed age is controlled by:
+
+```env
+DATA_FRESHNESS_MAX_HOURS=30
+```
+
+## Snowflake Validation
+
+After a successful run, validate Snowflake with:
+
+```sql
+USE DATABASE RETAIL_DW;
+USE SCHEMA PUBLIC;
+
+SELECT COUNT(*) AS product_count
+FROM DIM_PRODUCTS;
+
+SELECT COUNT(*) AS snapshot_count
+FROM FACT_PRODUCT_SNAPSHOTS;
+
+SELECT MAX(SNAPSHOT_TIMESTAMP) AS latest_snapshot
+FROM FACT_PRODUCT_SNAPSHOTS;
+```
+
+## Analytics
+
+Analytical SQL queries are available in:
+
+```text
+sql/analytical_queries.sql
+```
+
+Included query themes:
+
+- Core KPI summary
+- Average price and rating by category
+- Daily price trends
+- Top reviewed products
+- Largest observed price changes
+- Warehouse freshness monitoring
+
+## Power BI Dashboard
+
+Use Snowflake as the primary dashboard source.
+
+Recommended tables:
+
+- `RETAIL_DW.PUBLIC.DIM_PRODUCTS`
+- `RETAIL_DW.PUBLIC.FACT_PRODUCT_SNAPSHOTS`
+
+Dashboard setup, relationships, and DAX measures are documented in:
+
+```text
+docs/powerbi_dashboard_guide.md
+```
+
+## Important Notes
+
+- Amazon may return 503/CAPTCHA responses because of bot protection.
+- Empty scrape results are blocked by the data quality task instead of being loaded silently.
+- `.env` is intentionally ignored by Git and must not be committed.
+- `.env.example` contains placeholders only.
+- Snowflake credentials should be rotated if they are ever shared publicly.
+
+## System Check
+
+The latest local validation summary is available in:
+
+```text
+docs/system_check_report.md
+```
 
 ## License
 
