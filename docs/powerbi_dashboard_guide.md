@@ -39,8 +39,6 @@ Average Price = AVERAGE(FACT_PRODUCT_SNAPSHOTS[PRICE])
 
 Average Rating = AVERAGE(FACT_PRODUCT_SNAPSHOTS[RATING])
 
-Total Reviews = SUM(FACT_PRODUCT_SNAPSHOTS[REVIEW_COUNT])
-
 Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 ```
 
@@ -48,19 +46,19 @@ Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 
 ### Executive Overview
 
-- Cards: Total Products, Average Price, Average Rating, Total Reviews, Latest Snapshot.
+- Cards: Total Products, Average Price, Average Rating, Latest Snapshot.
 - Line chart: Average Price by Snapshot Date.
-- Bar chart: Product Count by Brand/Category.
+- Bar chart: Product Count by Device Type.
 
 ### Product Trends
 
-- Matrix: Product Title, Brand, Latest Price, Latest Rating, Review Count.
-- Line chart: Price trend by Brand.
-- Slicer: Brand, Snapshot Date.
+- Matrix: Product Name, Product Title, Device Type, Latest Price, Latest Rating.
+- Line chart: Price trend by Device Type.
+- Slicer: Device Type, Snapshot Date.
 
 ### Data Quality and Freshness
 
 - Card: Latest Snapshot.
 - Card: Snapshot Count.
-- Table: products with null rating or review count.
+- Table: products with null rating or missing product name.
 - Alert rule in Power BI Service when Latest Snapshot is older than the expected schedule.

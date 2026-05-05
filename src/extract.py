@@ -74,10 +74,6 @@ def parse_amazon_html(html_content, category):
             rating_tag = p.find('span', {'class': 'a-icon-alt'})
             rating_str = rating_tag.text.strip() if rating_tag else "0 out of 5 stars"
             
-            # Reviews count
-            reviews_tag = p.find('span', {'class': 'a-size-base s-underline-text'})
-            review_count_str = reviews_tag.text.strip().replace(',', '') if reviews_tag else "0"
-            
             # Image URL
             img_tag = p.find('img', {'class': 's-image'})
             image_url = img_tag.get('src') if img_tag else ""
@@ -91,7 +87,6 @@ def parse_amazon_html(html_content, category):
                 "title": title,
                 "price": price_str,
                 "rating": rating_str,
-                "review_count": review_count_str,
                 "image_url": image_url,
                 "product_url": product_url,
                 "category": category

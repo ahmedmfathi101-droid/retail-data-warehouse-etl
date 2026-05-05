@@ -39,8 +39,9 @@ PostgreSQL DW          Snowflake DW
 
 ## Key Features
 
-- Scrapes product listings from Amazon Egypt for SKU/ASIN, title, price, rating, review count, product URL, image URL, brand/category, and platform.
+- Scrapes product listings from Amazon Egypt for SKU/ASIN, title, price, rating, product URL, image URL, and device type.
 - Cleans and standardizes raw product data using `pandas`.
+- Creates a compact `Product Name` field from the first useful words in the full title.
 - Removes duplicate products within each batch before warehouse loading.
 - Loads dimensional warehouse tables into PostgreSQL.
 - Loads the same warehouse model into Snowflake.
@@ -103,15 +104,15 @@ The warehouse uses a simple dimensional model designed for retail product monito
 
 ### `DIM_PRODUCTS`
 
-Stores one row per platform/product SKU.
+Stores one row per product SKU.
 
 Main fields:
 
 - `PRODUCT_ID`
-- `PLATFORM`
 - `SKU`
 - `TITLE`
-- `BRAND`
+- `PRODUCT_NAME`
+- `DEVICE_TYPE`
 - `PRODUCT_URL`
 - `IMAGE_URL`
 - `CREATED_AT`
@@ -119,7 +120,7 @@ Main fields:
 
 ### `FACT_PRODUCT_SNAPSHOTS`
 
-Stores historical observations for each product.
+Stores historical price and rating observations for each product.
 
 Main fields:
 
@@ -127,7 +128,6 @@ Main fields:
 - `PRODUCT_ID`
 - `PRICE`
 - `RATING`
-- `REVIEW_COUNT`
 - `SNAPSHOT_DATE`
 - `SNAPSHOT_TIMESTAMP`
 
@@ -285,8 +285,7 @@ The `validate_clean_product_data` task checks:
 - Critical fields are not null.
 - Prices are not negative.
 - Ratings are between 0 and 5.
-- Review counts are not negative.
-- Duplicate `platform`/`sku` rows are removed during transformation.
+- Duplicate `sku` rows are removed during transformation.
 
 The latest quality report is written to:
 
@@ -327,9 +326,9 @@ Analytical SQL queries are available in [sql/analytical_queries.sql](sql/analyti
 Included query themes:
 
 - Core KPI summary
-- Average price and rating by category
+- Average price and rating by device type
 - Daily price trends
-- Top reviewed products
+- Highest rated products
 - Largest observed price changes
 - Warehouse freshness monitoring
 

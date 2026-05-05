@@ -112,10 +112,10 @@ def _create_tables(cursor):
         """
         CREATE TABLE IF NOT EXISTS dim_products (
             product_id NUMBER AUTOINCREMENT START 1 INCREMENT 1,
-            platform VARCHAR(50) NOT NULL,
             sku VARCHAR(100) NOT NULL,
             title VARCHAR NOT NULL,
-            brand VARCHAR(255),
+            product_name VARCHAR,
+            device_type VARCHAR(255),
             product_url VARCHAR,
             image_url VARCHAR,
             created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
@@ -131,7 +131,6 @@ def _create_tables(cursor):
             product_id NUMBER NOT NULL,
             price NUMBER(10, 2),
             rating NUMBER(3, 2),
-            review_count NUMBER,
             snapshot_date DATE DEFAULT CURRENT_DATE(),
             snapshot_timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
         )
@@ -139,12 +138,49 @@ def _create_tables(cursor):
     )
 
 
+def _column_exists(cursor, table_name, column_name):
+    cursor.execute(f"SHOW COLUMNS LIKE '{column_name.upper()}' IN TABLE {table_name}")
+    return cursor.fetchone() is not None
+
+
+def _add_column_if_missing(cursor, table_name, column_name, column_type):
+    if not _column_exists(cursor, table_name, column_name):
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+
+def _drop_column_if_exists(cursor, table_name, column_name):
+    if _column_exists(cursor, table_name, column_name):
+        cursor.execute(f"ALTER TABLE {table_name} DROP COLUMN {column_name}")
+
+
+def _ensure_current_schema(cursor):
+    """
+    Evolves existing Snowflake tables from the older platform/brand/review_count
+    shape to the current cleaned dataset shape.
+    """
+    _add_column_if_missing(cursor, "dim_products", "product_name", "VARCHAR")
+    _add_column_if_missing(cursor, "dim_products", "device_type", "VARCHAR(255)")
+
+    if _column_exists(cursor, "dim_products", "brand"):
+        cursor.execute(
+            """
+            UPDATE dim_products
+            SET device_type = brand
+            WHERE device_type IS NULL AND brand IS NOT NULL
+            """
+        )
+
+    _drop_column_if_exists(cursor, "dim_products", "platform")
+    _drop_column_if_exists(cursor, "dim_products", "brand")
+    _drop_column_if_exists(cursor, "fact_product_snapshots", "review_count")
+
+
 def _upsert_product(cursor, row):
     params = {
-        "platform": str(row["platform"]),
         "sku": str(row["sku"]),
         "title": str(row["title"]),
-        "brand": _clean_value(row["brand"]),
+        "product_name": _clean_value(row["Product Name"]),
+        "device_type": _clean_value(row["Device type"]),
         "product_url": _clean_value(row["product_url"]),
         "image_url": _clean_value(row["image_url"]),
     }
@@ -154,24 +190,25 @@ def _upsert_product(cursor, row):
         MERGE INTO dim_products AS target
         USING (
             SELECT
-                %(platform)s AS platform,
                 %(sku)s AS sku,
                 %(title)s AS title,
-                %(brand)s AS brand,
+                %(product_name)s AS product_name,
+                %(device_type)s AS device_type,
                 %(product_url)s AS product_url,
                 %(image_url)s AS image_url
         ) AS source
-        ON target.platform = source.platform AND target.sku = source.sku
+        ON target.sku = source.sku
         WHEN MATCHED THEN UPDATE SET
             title = source.title,
-            brand = source.brand,
+            product_name = source.product_name,
+            device_type = source.device_type,
             product_url = source.product_url,
             image_url = source.image_url,
             updated_at = CURRENT_TIMESTAMP()
         WHEN NOT MATCHED THEN INSERT (
-            platform, sku, title, brand, product_url, image_url
+            sku, title, product_name, device_type, product_url, image_url
         ) VALUES (
-            source.platform, source.sku, source.title, source.brand, source.product_url, source.image_url
+            source.sku, source.title, source.product_name, source.device_type, source.product_url, source.image_url
         )
         """,
         params,
@@ -181,9 +218,9 @@ def _upsert_product(cursor, row):
         """
         SELECT product_id
         FROM dim_products
-        WHERE platform = %(platform)s AND sku = %(sku)s
+        WHERE sku = %(sku)s
         """,
-        {"platform": params["platform"], "sku": params["sku"]},
+        {"sku": params["sku"]},
     )
     return cursor.fetchone()[0]
 
@@ -191,14 +228,13 @@ def _upsert_product(cursor, row):
 def _insert_snapshot(cursor, product_id, row):
     cursor.execute(
         """
-        INSERT INTO fact_product_snapshots (product_id, price, rating, review_count)
-        VALUES (%(product_id)s, %(price)s, %(rating)s, %(review_count)s)
+        INSERT INTO fact_product_snapshots (product_id, price, rating)
+        VALUES (%(product_id)s, %(price)s, %(rating)s)
         """,
         {
             "product_id": product_id,
             "price": _clean_value(row["price"]),
             "rating": _clean_value(row["rating"]),
-            "review_count": None if pd.isna(row["review_count"]) else int(row["review_count"]),
         },
     )
 
@@ -229,6 +265,7 @@ def load_data_to_snowflake(clean_file_path):
         cursor = conn.cursor()
         try:
             _create_tables(cursor)
+            _ensure_current_schema(cursor)
             for _, row in df.iterrows():
                 product_id = _upsert_product(cursor, row)
                 _insert_snapshot(cursor, product_id, row)

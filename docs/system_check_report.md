@@ -35,5 +35,5 @@ Last checked: 2026-05-05 03:48 Africa/Cairo
   - `RETAIL_DW.PUBLIC.DIM_PRODUCTS`: 427 rows
   - `RETAIL_DW.PUBLIC.FACT_PRODUCT_SNAPSHOTS`: 762 rows
   - Latest Snowflake snapshot timestamp: `2026-05-04 17:47:16.646000`
-- The transform step now removes duplicate `platform`/`sku` rows before loading to prevent duplicate snapshots from duplicated search results in the same batch.
+- The transform step now removes duplicate `sku` rows before loading to prevent duplicate snapshots from duplicated search results in the same batch.
 - Amazon may intermittently return 503/CAPTCHA responses. If that results in an empty clean file, the data quality task is expected to fail the DAG instead of loading empty warehouse data.

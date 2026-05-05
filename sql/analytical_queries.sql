@@ -7,67 +7,67 @@ SELECT
     COUNT(*) AS total_snapshots,
     ROUND(AVG(f.price), 2) AS avg_price,
     ROUND(AVG(f.rating), 2) AS avg_rating,
-    SUM(f.review_count) AS total_reviews,
     MAX(f.snapshot_timestamp) AS latest_snapshot
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id;
 
--- 2. Average price and rating by category/brand
+-- 2. Average price and rating by device type
 SELECT
-    p.brand,
+    p.device_type,
     COUNT(DISTINCT p.product_id) AS product_count,
     ROUND(AVG(f.price), 2) AS avg_price,
-    ROUND(AVG(f.rating), 2) AS avg_rating,
-    SUM(f.review_count) AS total_reviews
+    ROUND(AVG(f.rating), 2) AS avg_rating
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY p.brand
+GROUP BY p.device_type
 ORDER BY product_count DESC;
 
 -- 3. Daily price trend
 SELECT
     f.snapshot_date,
-    p.brand,
+    p.device_type,
     ROUND(AVG(f.price), 2) AS avg_price,
     COUNT(*) AS snapshot_count
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY f.snapshot_date, p.brand
-ORDER BY f.snapshot_date, p.brand;
+GROUP BY f.snapshot_date, p.device_type
+ORDER BY f.snapshot_date, p.device_type;
 
--- 4. Top reviewed products
+-- 4. Highest rated products
 SELECT
+    p.product_name,
     p.title,
-    p.brand,
-    MAX(f.review_count) AS max_review_count,
+    p.device_type,
     ROUND(AVG(f.rating), 2) AS avg_rating,
     ROUND(AVG(f.price), 2) AS avg_price
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY p.title, p.brand
-ORDER BY max_review_count DESC
+GROUP BY p.product_name, p.title, p.device_type
+ORDER BY avg_rating DESC, avg_price DESC
 LIMIT 20;
 
 -- 5. Products with the largest observed price changes
 WITH product_prices AS (
     SELECT
         p.product_id,
+        p.product_name,
         p.title,
-        p.brand,
+        p.device_type,
         MIN(f.price) AS min_price,
         MAX(f.price) AS max_price
     FROM fact_product_snapshots f
     JOIN dim_products p
         ON f.product_id = p.product_id
-    GROUP BY p.product_id, p.title, p.brand
+    GROUP BY p.product_id, p.product_name, p.title, p.device_type
 )
 SELECT
+    product_name,
     title,
-    brand,
+    device_type,
     min_price,
     max_price,
     ROUND(max_price - min_price, 2) AS price_change

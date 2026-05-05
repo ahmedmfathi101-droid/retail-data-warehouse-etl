@@ -7,6 +7,59 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+CLEAN_COLUMNS = [
+    'sku',
+    'title',
+    'Product Name',
+    'price',
+    'rating',
+    'product_url',
+    'image_url',
+    'Device type',
+]
+
+PRODUCT_NAME_STOP_WORDS = {'for', 'to', 'up'}
+PRODUCT_NAME_SEPARATOR_PATTERN = re.compile(r'[,:\-_]')
+
+
+def extract_product_name(title):
+    """
+    Builds a short product name from the title.
+
+    The name is capped at five words and stops earlier when the title reaches
+    compatibility/description separators such as "for", "to", "up", comma,
+    dash, underscore, or colon.
+    """
+    if not isinstance(title, str):
+        return None
+
+    words = []
+    for raw_token in title.strip().split():
+        if PRODUCT_NAME_SEPARATOR_PATTERN.search(raw_token):
+            before_separator = PRODUCT_NAME_SEPARATOR_PATTERN.split(raw_token, maxsplit=1)[0]
+            before_separator = re.sub(r'^[^\w]+|[^\w]+$', '', before_separator)
+            if before_separator:
+                words.append(before_separator)
+            break
+
+        token = raw_token.strip()
+        cleaned_token = re.sub(r'^[^\w]+|[^\w]+$', '', token)
+        if not cleaned_token:
+            continue
+
+        if cleaned_token.lower() in PRODUCT_NAME_STOP_WORDS:
+            if words:
+                break
+            continue
+
+        words.append(cleaned_token)
+        if len(words) == 5:
+            break
+
+    return ' '.join(words) if words else None
+
+
 def transform_amazon_eg_data(input_file_path):
     """
     Reads raw JSON from the Amazon EG scraper, cleans it, and outputs a cleaned CSV.
@@ -20,7 +73,7 @@ def transform_amazon_eg_data(input_file_path):
         if not raw_data:
             logger.warning("No items found in the raw data to transform.")
             # Create an empty CSV with correct headers so load.py doesn't fail
-            df_empty = pd.DataFrame(columns=['sku', 'title', 'price', 'rating', 'review_count', 'product_url', 'image_url', 'brand', 'platform'])
+            df_empty = pd.DataFrame(columns=CLEAN_COLUMNS)
             output_file_path = input_file_path.replace('raw_', 'clean_').replace('.json', '.csv')
             df_empty.to_csv(output_file_path, index=False)
             return output_file_path
@@ -38,25 +91,21 @@ def transform_amazon_eg_data(input_file_path):
             
         df['rating_score'] = df['rating'].apply(extract_rating)
         
-        # Clean Review Count (e.g., "1,234" or "1234" -> 1234)
-        df['review_count'] = pd.to_numeric(df['review_count'], errors='coerce')
-        
         # Map to DW schema
         df['sku'] = df['asin']
-        df['brand'] = df['category'].str.capitalize()  # Scraped category used as brand for simplicity
-        df['platform'] = 'Amazon EG'
+        df['Product Name'] = df['title'].apply(extract_product_name)
+        df['Device type'] = df['category'].str.capitalize()
         
         # Select and rename columns
         cols_to_keep = {
             'sku': 'sku',
             'title': 'title',
+            'Product Name': 'Product Name',
             'price': 'price',
             'rating_score': 'rating',
-            'review_count': 'review_count',
             'product_url': 'product_url',
             'image_url': 'image_url',
-            'brand': 'brand',
-            'platform': 'platform'
+            'Device type': 'Device type',
         }
         
         # Ensure all columns exist before renaming (in case scraper missed something)
@@ -69,10 +118,10 @@ def transform_amazon_eg_data(input_file_path):
         # Drop rows without an SKU or Price
         df = df.dropna(subset=['sku', 'price'])
 
-        duplicate_count = df.duplicated(subset=['platform', 'sku']).sum()
+        duplicate_count = df.duplicated(subset=['sku']).sum()
         if duplicate_count:
-            logger.warning(f"Dropping {duplicate_count} duplicate platform/sku rows from the cleaned batch.")
-            df = df.drop_duplicates(subset=['platform', 'sku'], keep='first')
+            logger.warning(f"Dropping {duplicate_count} duplicate sku rows from the cleaned batch.")
+            df = df.drop_duplicates(subset=['sku'], keep='first')
         
         output_file_path = input_file_path.replace('raw_', 'clean_').replace('.json', '.csv')
         df.to_csv(output_file_path, index=False)

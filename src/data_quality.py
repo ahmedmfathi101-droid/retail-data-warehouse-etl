@@ -15,13 +15,12 @@ logger = logging.getLogger(__name__)
 REQUIRED_COLUMNS = [
     "sku",
     "title",
+    "Product Name",
     "price",
     "rating",
-    "review_count",
     "product_url",
     "image_url",
-    "brand",
-    "platform",
+    "Device type",
 ]
 
 
@@ -60,15 +59,15 @@ def validate_clean_file(clean_file_path):
         failures.append(f"Row count {row_count} is below DQ_MIN_ROWS={min_rows}")
 
     if not missing_columns and row_count > 0:
-        required_non_null = ["sku", "title", "price", "platform"]
+        required_non_null = ["sku", "title", "price"]
         null_counts = df[required_non_null].isna().sum().to_dict()
         bad_nulls = {key: int(value) for key, value in null_counts.items() if value > 0}
         if bad_nulls:
             failures.append(f"Null values found in required fields: {bad_nulls}")
 
-        duplicated_skus = int(df.duplicated(subset=["platform", "sku"]).sum())
+        duplicated_skus = int(df.duplicated(subset=["sku"]).sum())
         if duplicated_skus:
-            warnings.append(f"Duplicate platform/sku rows in current batch: {duplicated_skus}")
+            warnings.append(f"Duplicate sku rows in current batch: {duplicated_skus}")
 
         negative_prices = int((df["price"] < 0).sum())
         if negative_prices:
@@ -77,10 +76,6 @@ def validate_clean_file(clean_file_path):
         invalid_ratings = int((df["rating"].notna() & ~df["rating"].between(0, 5)).sum())
         if invalid_ratings:
             failures.append(f"Ratings outside 0-5 range found: {invalid_ratings}")
-
-        negative_reviews = int((df["review_count"].notna() & (df["review_count"] < 0)).sum())
-        if negative_reviews:
-            failures.append(f"Negative review counts found: {negative_reviews}")
 
     report = {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
