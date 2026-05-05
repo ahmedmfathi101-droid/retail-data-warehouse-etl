@@ -20,7 +20,51 @@ CLEAN_COLUMNS = [
 ]
 
 PRODUCT_NAME_STOP_WORDS = {'for', 'to', 'up'}
+PRODUCT_NAME_TRAILING_STOP_WORDS = {
+    'a',
+    'an',
+    'and',
+    'as',
+    'at',
+    'but',
+    'by',
+    'for',
+    'from',
+    'in',
+    'into',
+    'nor',
+    'of',
+    'on',
+    'onto',
+    'or',
+    'per',
+    'so',
+    'than',
+    'the',
+    'to',
+    'up',
+    'via',
+    'vs',
+    'with',
+    'without',
+    'yet',
+}
 PRODUCT_NAME_SEPARATOR_PATTERN = re.compile(r'[,:\-_]')
+PRODUCT_NAME_NUMBER_PATTERN = re.compile(r'\d+(?:[.,]\d+)?')
+
+
+def _is_trailing_product_name_noise(word):
+    normalized_word = word.strip().lower()
+    return (
+        normalized_word in PRODUCT_NAME_TRAILING_STOP_WORDS
+        or bool(PRODUCT_NAME_NUMBER_PATTERN.fullmatch(normalized_word))
+    )
+
+
+def _remove_trailing_product_name_noise(words):
+    while words and _is_trailing_product_name_noise(words[-1]):
+        words.pop()
+    return words
 
 
 def extract_product_name(title):
@@ -57,6 +101,7 @@ def extract_product_name(title):
         if len(words) == 5:
             break
 
+    words = _remove_trailing_product_name_noise(words)
     return ' '.join(words) if words else None
 
 

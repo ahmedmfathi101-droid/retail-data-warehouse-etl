@@ -41,7 +41,7 @@ PostgreSQL DW          Snowflake DW
 
 - Scrapes product listings from Amazon Egypt for SKU/ASIN, title, price, rating, product URL, image URL, and device type.
 - Cleans and standardizes raw product data using `pandas`.
-- Creates a compact `Product Name` field from the first useful words in the full title.
+- Creates a compact `Product Name` field from the first useful words in the full title, trimming trailing prepositions, conjunctions, and standalone numbers.
 - Removes duplicate products within each batch before warehouse loading.
 - Loads dimensional warehouse tables into PostgreSQL.
 - Loads the same warehouse model into Snowflake.
