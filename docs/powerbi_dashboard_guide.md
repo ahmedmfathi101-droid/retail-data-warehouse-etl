@@ -36,6 +36,18 @@ DIM_PRODUCTS[PRODUCT_NAME]
 
 `PRODUCT_NAME` is generated from the full title and cleaned to avoid trailing prepositions, conjunctions, and standalone numbers.
 
+Recommended analysis columns:
+
+```text
+DIM_PRODUCTS[BRAND]
+DIM_PRODUCTS[DEVICE_TYPE]
+DIM_PRODUCTS[DATA_QUALITY_SCORE]
+DIM_PRODUCTS[BRAND_VALIDATION_STATUS]
+FACT_PRODUCT_SNAPSHOTS[DISCOUNT_PERCENT]
+FACT_PRODUCT_SNAPSHOTS[AVAILABILITY]
+FACT_PRODUCT_SNAPSHOTS[SELLER]
+```
+
 ## Core Measures
 
 ```DAX
@@ -47,6 +59,10 @@ Average Price = AVERAGE(FACT_PRODUCT_SNAPSHOTS[PRICE])
 
 Average Rating = AVERAGE(FACT_PRODUCT_SNAPSHOTS[RATING])
 
+Average Discount = AVERAGE(FACT_PRODUCT_SNAPSHOTS[DISCOUNT_PERCENT])
+
+Average Data Quality Score = AVERAGE(DIM_PRODUCTS[DATA_QUALITY_SCORE])
+
 Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 ```
 
@@ -54,19 +70,20 @@ Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 
 ### Executive Overview
 
-- Cards: Total Products, Average Price, Average Rating, Latest Snapshot.
+- Cards: Total Products, Average Price, Average Rating, Average Discount, Average Data Quality Score, Latest Snapshot.
 - Line chart: Average Price by Snapshot Date.
-- Bar chart: Product Count by Device Type.
+- Bar chart: Product Count by Brand and Device Type.
 
 ### Product Trends
 
-- Matrix: Product Name, Product Title, Device Type, Latest Price, Latest Rating.
-- Line chart: Price trend by Device Type.
-- Slicer: Device Type, Snapshot Date.
+- Matrix: Product Name, Brand, Device Type, Latest Price, Discount Percent, Latest Rating, Seller, Availability.
+- Line chart: Price trend by Brand and Device Type.
+- Slicer: Brand, Device Type, Seller, Snapshot Date.
 
 ### Data Quality and Freshness
 
 - Card: Latest Snapshot.
 - Card: Snapshot Count.
-- Table: products with null rating, missing product name, or product names longer than five words.
+- Table: products with null rating, missing product name, low data quality score, or validation status not equal to `valid`.
+- Bar chart: Product Count by Brand Validation Status.
 - Alert rule in Power BI Service when Latest Snapshot is older than the expected schedule.

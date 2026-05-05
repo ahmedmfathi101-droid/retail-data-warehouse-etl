@@ -21,11 +21,36 @@ REQUIRED_COLUMNS = [
     "sku",
     "title",
     "Product Name",
+    "brand",
     "price",
+    "currency",
+    "original_price",
+    "discount_percent",
     "rating",
+    "availability",
+    "seller",
+    "is_sponsored",
+    "is_prime",
+    "model_number",
+    "color",
+    "screen_size",
+    "ram_memory",
+    "storage_capacity",
+    "processor",
+    "gpu",
+    "operating_system",
+    "display_resolution",
+    "connectivity",
+    "product_dimensions",
+    "item_weight",
+    "best_sellers_rank",
     "product_url",
     "image_url",
     "Device type",
+    "brand_validation_status",
+    "device_type_validation_status",
+    "data_quality_score",
+    "validation_notes",
 ]
 
 
@@ -54,6 +79,7 @@ def validate_clean_file(clean_file_path):
     min_rows = int(os.getenv("DQ_MIN_ROWS", "1"))
     failures = []
     warnings = []
+    ai_validation_summary = {}
 
     missing_columns = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing_columns:
@@ -99,12 +125,54 @@ def validate_clean_file(clean_file_path):
         if invalid_ratings:
             failures.append(f"Ratings outside 0-5 range found: {invalid_ratings}")
 
+        invalid_original_prices = int(
+            (
+                df["original_price"].notna()
+                & df["price"].notna()
+                & (df["original_price"] < df["price"])
+            ).sum()
+        )
+        if invalid_original_prices:
+            warnings.append(f"Original price lower than current price rows: {invalid_original_prices}")
+
+        invalid_discount_percent = int(
+            (
+                df["discount_percent"].notna()
+                & ~df["discount_percent"].between(0, 100)
+            ).sum()
+        )
+        if invalid_discount_percent:
+            failures.append(f"Discount percent outside 0-100 range found: {invalid_discount_percent}")
+
+        ai_validation_summary = {
+            "avg_data_quality_score": float(df["data_quality_score"].mean()) if row_count else None,
+            "min_data_quality_score": float(df["data_quality_score"].min()) if row_count else None,
+            "brand_validation_status_counts": df["brand_validation_status"].fillna("missing").value_counts().to_dict(),
+            "device_type_validation_status_counts": df["device_type_validation_status"]
+            .fillna("missing")
+            .value_counts()
+            .to_dict(),
+        }
+
+        invalid_brand_rows = int((df["brand_validation_status"] == "invalid_device_type").sum())
+        if invalid_brand_rows:
+            warnings.append(f"Brand values that looked like device types: {invalid_brand_rows}")
+
+        device_type_mismatch_rows = int((df["device_type_validation_status"] == "mismatch").sum())
+        if device_type_mismatch_rows:
+            warnings.append(f"Device type values corrected by AI validation: {device_type_mismatch_rows}")
+
+        low_quality_rows = int((df["data_quality_score"] < 70).sum())
+        if low_quality_rows:
+            warnings.append(f"Rows with AI validation score below 70: {low_quality_rows}")
+
     report = {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "file_path": clean_file_path,
         "row_count": row_count,
         "min_rows": min_rows,
         "required_columns": REQUIRED_COLUMNS,
+        "ai_validation_summary": ai_validation_summary,
         "failures": failures,
         "warnings": warnings,
         "status": "failed" if failures else "passed",

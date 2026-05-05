@@ -39,15 +39,17 @@ PostgreSQL DW          Snowflake DW
 
 ## Key Features
 
-- Scrapes product listings from Amazon Egypt for SKU/ASIN, title, price, rating, product URL, image URL, and device type.
+- Scrapes Amazon Egypt listing pages and optionally enriches products from detail pages.
+- Collects SKU/ASIN, title, product name, brand, device type, prices, discount, rating, seller, availability, Prime/sponsored flags, and technical specs.
 - Cleans and standardizes raw product data using `pandas`.
 - Creates a compact `Product Name` field from the first useful words in the full title, trimming trailing prepositions, conjunctions, and standalone numbers.
+- Runs local AI-style semantic validation to detect column mismatches, such as a device type being loaded as a brand.
 - Removes duplicate products within each batch before warehouse loading.
 - Loads dimensional warehouse tables into PostgreSQL.
 - Loads the same warehouse model into Snowflake.
 - Uses upsert logic for product dimension records.
 - Backfills `PRODUCT_NAME` for existing warehouse rows when the naming rule changes.
-- Inserts historical snapshot facts for price and rating tracking.
+- Inserts historical snapshot facts for price, discount, rating, seller, availability, Prime, and sponsored tracking.
 - Runs data quality validation before loading.
 - Runs freshness checks after warehouse loading.
 - Provides analytical SQL queries for business insights.
@@ -76,6 +78,7 @@ retail-data-warehouse-etl/
 |-- src/
 |   |-- extract.py
 |   |-- transform.py
+|   |-- ai_validation.py
 |   |-- load.py
 |   |-- load_snowflake.py
 |   `-- data_quality.py
@@ -113,9 +116,27 @@ Main fields:
 - `SKU`
 - `TITLE`
 - `PRODUCT_NAME`
+- `BRAND`
 - `DEVICE_TYPE`
+- `MODEL_NUMBER`
+- `COLOR`
+- `SCREEN_SIZE`
+- `RAM_MEMORY`
+- `STORAGE_CAPACITY`
+- `PROCESSOR`
+- `GPU`
+- `OPERATING_SYSTEM`
+- `DISPLAY_RESOLUTION`
+- `CONNECTIVITY`
+- `PRODUCT_DIMENSIONS`
+- `ITEM_WEIGHT`
+- `BEST_SELLERS_RANK`
 - `PRODUCT_URL`
 - `IMAGE_URL`
+- `BRAND_VALIDATION_STATUS`
+- `DEVICE_TYPE_VALIDATION_STATUS`
+- `DATA_QUALITY_SCORE`
+- `VALIDATION_NOTES`
 - `CREATED_AT`
 - `UPDATED_AT`
 
@@ -128,7 +149,14 @@ Main fields:
 - `SNAPSHOT_ID`
 - `PRODUCT_ID`
 - `PRICE`
+- `CURRENCY`
+- `ORIGINAL_PRICE`
+- `DISCOUNT_PERCENT`
 - `RATING`
+- `AVAILABILITY`
+- `SELLER`
+- `IS_SPONSORED`
+- `IS_PRIME`
 - `SNAPSHOT_DATE`
 - `SNAPSHOT_TIMESTAMP`
 
@@ -197,7 +225,20 @@ DATA_FRESHNESS_MAX_HOURS=30
 
 `DQ_MIN_ROWS` prevents empty or blocked scrape runs from loading silently. `DATA_FRESHNESS_MAX_HOURS` controls the maximum accepted data age after loading.
 
-### 4. Configure Snowflake
+### 4. Configure Scraping Depth
+
+```env
+SCRAPE_SEARCH_TERMS=laptop,smartphone,headphone,television
+SCRAPE_SEARCH_PAGES=2
+SCRAPE_DETAIL_PAGES=true
+SCRAPE_DETAIL_LIMIT_PER_RUN=80
+SCRAPE_DETAIL_DELAY_MIN_SECONDS=1
+SCRAPE_DETAIL_DELAY_MAX_SECONDS=2.5
+```
+
+Detail-page enrichment extracts brand, manufacturer, model, color, memory, storage, display, seller, availability, and other technical fields. The limit and delay controls reduce the risk of Amazon blocking the scraper.
+
+### 5. Configure Snowflake
 
 To enable Snowflake loading:
 
@@ -226,7 +267,7 @@ SNOWFLAKE_ACCOUNT=abc12345.us-east-1
 
 Full Snowflake setup and load instructions are available in [docs/snowflake_setup_guide.md](docs/snowflake_setup_guide.md).
 
-### 5. Start Services
+### 6. Start Services
 
 ```bash
 docker compose up -d
@@ -289,6 +330,8 @@ The `validate_clean_product_data` task checks:
 - `Product Name` is not blank.
 - `Product Name` is capped at five words.
 - `Product Name` does not end with a preposition, conjunction, or standalone number.
+- AI validation flags suspicious brand/device-type values.
+- AI validation writes `brand_validation_status`, `device_type_validation_status`, `data_quality_score`, and `validation_notes`.
 - Duplicate `sku` rows are removed during transformation.
 
 The latest quality report is written to:
@@ -336,6 +379,8 @@ Included query themes:
 - Largest observed price changes
 - Warehouse freshness monitoring
 - Product name quality audit
+- Brand/device-type validation audit
+- Discount and seller opportunity analysis
 
 ## Power BI Dashboard
 

@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, text
 import os
 import logging
 
+from src.ai_validation import validate_product_record
 from src.transform import (
     PRODUCT_NAME_MAX_WORDS,
     extract_product_name,
@@ -34,33 +35,70 @@ def _product_name_needs_refresh(product_name):
     )
 
 
-def _backfill_product_names(conn):
-    rows = conn.execute(text("SELECT product_id, title, product_name FROM dim_products")).mappings().all()
+def _backfill_product_metadata(conn):
+    rows = conn.execute(
+        text(
+            """
+            SELECT
+                product_id,
+                title,
+                product_name,
+                brand,
+                device_type,
+                brand_validation_status,
+                device_type_validation_status,
+                data_quality_score
+            FROM dim_products
+            """
+        )
+    ).mappings().all()
     updated_count = 0
 
     for row in rows:
-        if not _product_name_needs_refresh(row["product_name"]):
+        validation_result = validate_product_record(row)
+        product_name = row["product_name"]
+        needs_refresh = (
+            _product_name_needs_refresh(product_name)
+            or validation_result["brand_validation_status"] in {"invalid_device_type", "corrected", "missing"}
+            or row["brand_validation_status"] is None
+            or row["device_type_validation_status"] is None
+            or row["data_quality_score"] is None
+        )
+        if not needs_refresh:
             continue
 
-        product_name = extract_product_name(row["title"])
-        if not product_name:
-            continue
+        product_name = extract_product_name(row["title"]) or product_name
 
         conn.execute(
             text(
                 """
                 UPDATE dim_products
                 SET product_name = :product_name,
+                    brand = :brand,
+                    device_type = :device_type,
+                    brand_validation_status = :brand_validation_status,
+                    device_type_validation_status = :device_type_validation_status,
+                    data_quality_score = :data_quality_score,
+                    validation_notes = :validation_notes,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE product_id = :product_id
                 """
             ),
-            {"product_name": product_name, "product_id": row["product_id"]},
+            {
+                "product_name": product_name,
+                "brand": validation_result["brand"],
+                "device_type": validation_result["Device type"],
+                "brand_validation_status": validation_result["brand_validation_status"],
+                "device_type_validation_status": validation_result["device_type_validation_status"],
+                "data_quality_score": validation_result["data_quality_score"],
+                "validation_notes": validation_result["validation_notes"],
+                "product_id": row["product_id"],
+            },
         )
         updated_count += 1
 
     if updated_count:
-        logger.info("Backfilled Product Name for %s existing PostgreSQL products.", updated_count)
+        logger.info("Backfilled product metadata for %s existing PostgreSQL products.", updated_count)
 
 
 def _ensure_current_schema(conn):
@@ -69,8 +107,33 @@ def _ensure_current_schema(conn):
     shape without requiring the user to rebuild the Docker volume.
     """
     conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS product_name TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS brand VARCHAR(255);"))
     conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS device_type VARCHAR(255);"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS model_number TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS color TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS screen_size TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS ram_memory TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS storage_capacity TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS processor TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS gpu TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS operating_system TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS display_resolution TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS connectivity TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS product_dimensions TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS item_weight TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS best_sellers_rank TEXT;"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS brand_validation_status VARCHAR(50);"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS device_type_validation_status VARCHAR(50);"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS data_quality_score DECIMAL(5, 2);"))
+    conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS validation_notes TEXT;"))
     conn.execute(text("ALTER TABLE dim_products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS currency VARCHAR(10);"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS original_price DECIMAL(10, 2);"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS discount_percent DECIMAL(5, 2);"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS availability TEXT;"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS seller TEXT;"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS is_sponsored BOOLEAN;"))
+    conn.execute(text("ALTER TABLE fact_product_snapshots ADD COLUMN IF NOT EXISTS is_prime BOOLEAN;"))
     conn.execute(text("""
         DO $$
         BEGIN
@@ -87,10 +150,9 @@ def _ensure_current_schema(conn):
         END $$;
     """))
     conn.execute(text("ALTER TABLE dim_products DROP COLUMN IF EXISTS platform CASCADE;"))
-    conn.execute(text("ALTER TABLE dim_products DROP COLUMN IF EXISTS brand;"))
     conn.execute(text("ALTER TABLE fact_product_snapshots DROP COLUMN IF EXISTS review_count;"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ux_dim_products_sku ON dim_products(sku);"))
-    _backfill_product_names(conn)
+    _backfill_product_metadata(conn)
 
 
 def load_data(clean_file_path):
@@ -113,14 +175,44 @@ def load_data(clean_file_path):
                 # 1. Upsert into dim_products
                 # Conflict on sku
                 upsert_dim_sql = text("""
-                    INSERT INTO dim_products (sku, title, product_name, device_type, product_url, image_url)
-                    VALUES (:sku, :title, :product_name, :device_type, :product_url, :image_url)
+                    INSERT INTO dim_products (
+                        sku, title, product_name, brand, device_type, model_number, color,
+                        screen_size, ram_memory, storage_capacity, processor, gpu, operating_system,
+                        display_resolution, connectivity, product_dimensions, item_weight,
+                        best_sellers_rank, product_url, image_url, brand_validation_status,
+                        device_type_validation_status, data_quality_score, validation_notes
+                    )
+                    VALUES (
+                        :sku, :title, :product_name, :brand, :device_type, :model_number, :color,
+                        :screen_size, :ram_memory, :storage_capacity, :processor, :gpu, :operating_system,
+                        :display_resolution, :connectivity, :product_dimensions, :item_weight,
+                        :best_sellers_rank, :product_url, :image_url, :brand_validation_status,
+                        :device_type_validation_status, :data_quality_score, :validation_notes
+                    )
                     ON CONFLICT (sku) DO UPDATE
                     SET title = EXCLUDED.title,
                         product_name = EXCLUDED.product_name,
+                        brand = EXCLUDED.brand,
                         device_type = EXCLUDED.device_type,
+                        model_number = EXCLUDED.model_number,
+                        color = EXCLUDED.color,
+                        screen_size = EXCLUDED.screen_size,
+                        ram_memory = EXCLUDED.ram_memory,
+                        storage_capacity = EXCLUDED.storage_capacity,
+                        processor = EXCLUDED.processor,
+                        gpu = EXCLUDED.gpu,
+                        operating_system = EXCLUDED.operating_system,
+                        display_resolution = EXCLUDED.display_resolution,
+                        connectivity = EXCLUDED.connectivity,
+                        product_dimensions = EXCLUDED.product_dimensions,
+                        item_weight = EXCLUDED.item_weight,
+                        best_sellers_rank = EXCLUDED.best_sellers_rank,
                         product_url = EXCLUDED.product_url,
                         image_url = EXCLUDED.image_url,
+                        brand_validation_status = EXCLUDED.brand_validation_status,
+                        device_type_validation_status = EXCLUDED.device_type_validation_status,
+                        data_quality_score = EXCLUDED.data_quality_score,
+                        validation_notes = EXCLUDED.validation_notes,
                         updated_at = CURRENT_TIMESTAMP
                     RETURNING product_id;
                 """)
@@ -129,23 +221,54 @@ def load_data(clean_file_path):
                     "sku": str(row['sku']),
                     "title": row['title'],
                     "product_name": _clean_value(row['Product Name']),
+                    "brand": _clean_value(row['brand']),
                     "device_type": _clean_value(row['Device type']),
+                    "model_number": _clean_value(row['model_number']),
+                    "color": _clean_value(row['color']),
+                    "screen_size": _clean_value(row['screen_size']),
+                    "ram_memory": _clean_value(row['ram_memory']),
+                    "storage_capacity": _clean_value(row['storage_capacity']),
+                    "processor": _clean_value(row['processor']),
+                    "gpu": _clean_value(row['gpu']),
+                    "operating_system": _clean_value(row['operating_system']),
+                    "display_resolution": _clean_value(row['display_resolution']),
+                    "connectivity": _clean_value(row['connectivity']),
+                    "product_dimensions": _clean_value(row['product_dimensions']),
+                    "item_weight": _clean_value(row['item_weight']),
+                    "best_sellers_rank": _clean_value(row['best_sellers_rank']),
                     "product_url": _clean_value(row['product_url']),
-                    "image_url": _clean_value(row['image_url'])
+                    "image_url": _clean_value(row['image_url']),
+                    "brand_validation_status": _clean_value(row['brand_validation_status']),
+                    "device_type_validation_status": _clean_value(row['device_type_validation_status']),
+                    "data_quality_score": _clean_value(row['data_quality_score']),
+                    "validation_notes": _clean_value(row['validation_notes']),
                 })
                 
                 product_id = result.scalar()
                 
                 # 2. Insert into fact_product_snapshots
                 insert_fact_sql = text("""
-                    INSERT INTO fact_product_snapshots (product_id, price, rating)
-                    VALUES (:product_id, :price, :rating);
+                    INSERT INTO fact_product_snapshots (
+                        product_id, price, currency, original_price, discount_percent, rating,
+                        availability, seller, is_sponsored, is_prime
+                    )
+                    VALUES (
+                        :product_id, :price, :currency, :original_price, :discount_percent, :rating,
+                        :availability, :seller, :is_sponsored, :is_prime
+                    );
                 """)
                 
                 conn.execute(insert_fact_sql, {
                     "product_id": product_id,
                     "price": _clean_value(row['price']),
+                    "currency": _clean_value(row['currency']),
+                    "original_price": _clean_value(row['original_price']),
+                    "discount_percent": _clean_value(row['discount_percent']),
                     "rating": _clean_value(row['rating']),
+                    "availability": _clean_value(row['availability']),
+                    "seller": _clean_value(row['seller']),
+                    "is_sponsored": _clean_value(row['is_sponsored']),
+                    "is_prime": _clean_value(row['is_prime']),
                 })
             
             logger.info("Successfully loaded data into Data Warehouse.")

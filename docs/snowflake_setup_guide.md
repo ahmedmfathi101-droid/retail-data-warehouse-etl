@@ -27,7 +27,7 @@ Update `.env`:
 ```env
 SNOWFLAKE_ENABLED=true
 SNOWFLAKE_ACCOUNT=your_account_identifier
-SNOWFLAKE_USER=fathi
+SNOWFLAKE_USER=your_username
 SNOWFLAKE_PASSWORD="your_password"
 SNOWFLAKE_WAREHOUSE=COMPUTE_WH
 SNOWFLAKE_DATABASE=RETAIL_DW
@@ -97,7 +97,14 @@ SELECT MAX(SNAPSHOT_TIMESTAMP) FROM FACT_PRODUCT_SNAPSHOTS;
 Validate the cleaned product naming fields:
 
 ```sql
-SELECT SKU, PRODUCT_NAME, DEVICE_TYPE
+SELECT
+  SKU,
+  PRODUCT_NAME,
+  BRAND,
+  DEVICE_TYPE,
+  DATA_QUALITY_SCORE,
+  BRAND_VALIDATION_STATUS,
+  DEVICE_TYPE_VALIDATION_STATUS
 FROM DIM_PRODUCTS
 WHERE PRODUCT_NAME IS NOT NULL
 LIMIT 20;
@@ -105,7 +112,23 @@ LIMIT 20;
 
 `PRODUCT_NAME` should contain at most five words and should not end with a preposition, conjunction, or standalone number.
 
-The Snowflake load step also backfills `PRODUCT_NAME` for existing rows when the naming rule changes.
+The Snowflake load step also backfills `PRODUCT_NAME`, `BRAND`, `DEVICE_TYPE`, and AI validation metadata for existing rows when the naming rule changes.
+
+Validate pricing and seller snapshot fields:
+
+```sql
+SELECT
+  PRICE,
+  ORIGINAL_PRICE,
+  DISCOUNT_PERCENT,
+  AVAILABILITY,
+  SELLER,
+  IS_SPONSORED,
+  IS_PRIME
+FROM FACT_PRODUCT_SNAPSHOTS
+ORDER BY SNAPSHOT_TIMESTAMP DESC
+LIMIT 20;
+```
 
 ## 7. Dashboard Source
 

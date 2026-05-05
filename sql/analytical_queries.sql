@@ -7,6 +7,8 @@ SELECT
     COUNT(*) AS total_snapshots,
     ROUND(AVG(f.price), 2) AS avg_price,
     ROUND(AVG(f.rating), 2) AS avg_rating,
+    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score,
+    ROUND(AVG(f.discount_percent), 2) AS avg_discount_percent,
     MAX(f.snapshot_timestamp) AS latest_snapshot
 FROM fact_product_snapshots f
 JOIN dim_products p
@@ -15,38 +17,44 @@ JOIN dim_products p
 -- 2. Average price and rating by device type
 SELECT
     p.device_type,
+    p.brand,
     COUNT(DISTINCT p.product_id) AS product_count,
     ROUND(AVG(f.price), 2) AS avg_price,
-    ROUND(AVG(f.rating), 2) AS avg_rating
+    ROUND(AVG(f.rating), 2) AS avg_rating,
+    ROUND(AVG(f.discount_percent), 2) AS avg_discount_percent,
+    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY p.device_type
+GROUP BY p.device_type, p.brand
 ORDER BY product_count DESC;
 
 -- 3. Daily price trend
 SELECT
     f.snapshot_date,
     p.device_type,
+    p.brand,
     ROUND(AVG(f.price), 2) AS avg_price,
     COUNT(*) AS snapshot_count
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY f.snapshot_date, p.device_type
-ORDER BY f.snapshot_date, p.device_type;
+GROUP BY f.snapshot_date, p.device_type, p.brand
+ORDER BY f.snapshot_date, p.device_type, p.brand;
 
 -- 4. Highest rated products
 SELECT
     p.product_name,
     p.title,
+    p.brand,
     p.device_type,
     ROUND(AVG(f.rating), 2) AS avg_rating,
-    ROUND(AVG(f.price), 2) AS avg_price
+    ROUND(AVG(f.price), 2) AS avg_price,
+    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
-GROUP BY p.product_name, p.title, p.device_type
+GROUP BY p.product_name, p.title, p.brand, p.device_type
 ORDER BY avg_rating DESC, avg_price DESC
 LIMIT 20;
 
@@ -56,17 +64,19 @@ WITH product_prices AS (
         p.product_id,
         p.product_name,
         p.title,
+        p.brand,
         p.device_type,
         MIN(f.price) AS min_price,
         MAX(f.price) AS max_price
     FROM fact_product_snapshots f
     JOIN dim_products p
         ON f.product_id = p.product_id
-    GROUP BY p.product_id, p.product_name, p.title, p.device_type
+    GROUP BY p.product_id, p.product_name, p.title, p.brand, p.device_type
 )
 SELECT
     product_name,
     title,
+    brand,
     device_type,
     min_price,
     max_price,
@@ -99,3 +109,31 @@ WHERE product_name IS NULL
         'without', 'yet'
    )
    OR REGEXP_LIKE(REGEXP_SUBSTR(TRIM(product_name), '[^ ]+$'), '^[0-9]+([.,][0-9]+)?$');
+
+-- 8. AI validation quality audit
+SELECT
+    brand_validation_status,
+    device_type_validation_status,
+    COUNT(*) AS product_count,
+    ROUND(AVG(data_quality_score), 2) AS avg_data_quality_score
+FROM dim_products
+GROUP BY brand_validation_status, device_type_validation_status
+ORDER BY product_count DESC;
+
+-- 9. Best discount opportunities
+SELECT
+    p.product_name,
+    p.brand,
+    p.device_type,
+    f.price,
+    f.original_price,
+    f.discount_percent,
+    f.availability,
+    f.seller,
+    f.snapshot_timestamp
+FROM fact_product_snapshots f
+JOIN dim_products p
+    ON f.product_id = p.product_id
+WHERE f.discount_percent IS NOT NULL
+ORDER BY f.discount_percent DESC, f.price ASC
+LIMIT 20;
