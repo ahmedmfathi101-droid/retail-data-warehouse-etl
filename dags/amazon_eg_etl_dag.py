@@ -24,9 +24,10 @@ with DAG(
     'amazon_eg_etl',
     default_args=default_args,
     description='ETL DAG for Amazon Egypt Scraper',
-    schedule_interval=timedelta(days=1),
+    schedule_interval=timedelta(hours=1),
     start_date=datetime(2023, 1, 1),
     catchup=False,
+    max_active_runs=1,
     tags=['retail', 'amazon', 'scraper'],
 ) as dag:
 

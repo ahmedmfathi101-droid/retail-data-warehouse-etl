@@ -1,8 +1,8 @@
-pandas==2.0.3
-requests==2.31.0
-SQLAlchemy==1.4.51
-psycopg2-binary==2.9.9
-apache-airflow==2.8.1
-python-dotenv==1.0.1
-beautifulsoup4==4.12.3
-snowflake-connector-python==3.6.0
+pandas
+requests
+SQLAlchemy
+psycopg2-binary
+apache-airflow
+python-dotenv
+beautifulsoup4
+snowflake-connector-python

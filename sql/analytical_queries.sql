@@ -7,7 +7,6 @@ SELECT
     COUNT(*) AS total_snapshots,
     ROUND(AVG(f.price), 2) AS avg_price,
     ROUND(AVG(f.rating), 2) AS avg_rating,
-    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score,
     ROUND(AVG(f.discount_percent), 2) AS avg_discount_percent,
     MAX(f.snapshot_timestamp) AS latest_snapshot
 FROM fact_product_snapshots f
@@ -21,8 +20,7 @@ SELECT
     COUNT(DISTINCT p.product_id) AS product_count,
     ROUND(AVG(f.price), 2) AS avg_price,
     ROUND(AVG(f.rating), 2) AS avg_rating,
-    ROUND(AVG(f.discount_percent), 2) AS avg_discount_percent,
-    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score
+    ROUND(AVG(f.discount_percent), 2) AS avg_discount_percent
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
@@ -49,8 +47,7 @@ SELECT
     p.brand,
     p.device_type,
     ROUND(AVG(f.rating), 2) AS avg_rating,
-    ROUND(AVG(f.price), 2) AS avg_price,
-    ROUND(AVG(p.data_quality_score), 2) AS avg_data_quality_score
+    ROUND(AVG(f.price), 2) AS avg_price
 FROM fact_product_snapshots f
 JOIN dim_products p
     ON f.product_id = p.product_id
@@ -110,17 +107,7 @@ WHERE product_name IS NULL
    )
    OR REGEXP_LIKE(REGEXP_SUBSTR(TRIM(product_name), '[^ ]+$'), '^[0-9]+([.,][0-9]+)?$');
 
--- 8. AI validation quality audit
-SELECT
-    brand_validation_status,
-    device_type_validation_status,
-    COUNT(*) AS product_count,
-    ROUND(AVG(data_quality_score), 2) AS avg_data_quality_score
-FROM dim_products
-GROUP BY brand_validation_status, device_type_validation_status
-ORDER BY product_count DESC;
-
--- 9. Best discount opportunities
+-- 8. Best discount opportunities
 SELECT
     p.product_name,
     p.brand,

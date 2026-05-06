@@ -8,6 +8,9 @@ from sqlalchemy import create_engine, text
 
 from src.load_snowflake import _connect_to_snowflake, _is_enabled as snowflake_is_enabled
 from src.transform import (
+    INFO_UNAVAILABLE_TEXT,
+    INVALID_AVAILABILITY_PATTERN,
+    MISSING_TEXT_MARKERS,
     PRODUCT_NAME_MAX_WORDS,
     has_trailing_product_name_noise,
     product_name_word_count,
@@ -23,39 +26,19 @@ REQUIRED_COLUMNS = [
     "Product Name",
     "brand",
     "price",
-    "currency",
     "original_price",
     "discount_percent",
     "rating",
     "availability",
     "seller",
-    "is_sponsored",
-    "is_prime",
-    "model_number",
-    "color",
-    "screen_size",
-    "ram_memory",
-    "storage_capacity",
-    "processor",
-    "gpu",
-    "operating_system",
-    "display_resolution",
-    "connectivity",
-    "product_dimensions",
-    "item_weight",
-    "best_sellers_rank",
     "product_url",
     "image_url",
     "Device type",
-    "brand_validation_status",
-    "device_type_validation_status",
-    "data_quality_score",
-    "validation_notes",
 ]
 
 
 def _data_dir():
-    return os.getenv("DATA_DIR", "/opt/airflow/data")
+    return os.getenv("DATA_DIR") or ("data" if os.name == "nt" else "/opt/airflow/data")
 
 
 def _write_report(report):
@@ -79,7 +62,6 @@ def validate_clean_file(clean_file_path):
     min_rows = int(os.getenv("DQ_MIN_ROWS", "1"))
     failures = []
     warnings = []
-    ai_validation_summary = {}
 
     missing_columns = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing_columns:
@@ -95,6 +77,42 @@ def validate_clean_file(clean_file_path):
         bad_nulls = {key: int(value) for key, value in null_counts.items() if value > 0}
         if bad_nulls:
             failures.append(f"Null values found in required fields: {bad_nulls}")
+
+        null_cell_counts = df.isna().sum()
+        null_cells = {key: int(value) for key, value in null_cell_counts.to_dict().items() if value > 0}
+        if null_cells:
+            failures.append(f"Missing cells should be replaced with '{INFO_UNAVAILABLE_TEXT}': {null_cells}")
+
+        text_columns = df.select_dtypes(include=["object", "string"]).columns
+        bad_missing_markers = MISSING_TEXT_MARKERS - {INFO_UNAVAILABLE_TEXT.lower()}
+        missing_marker_counts = {}
+        blank_counts = {}
+        for column in text_columns:
+            normalized = df[column].astype(str).str.strip().str.lower()
+            marker_count = int(normalized.isin(bad_missing_markers).sum())
+            blank_count = int((normalized == "").sum())
+            if marker_count:
+                missing_marker_counts[column] = marker_count
+            if blank_count:
+                blank_counts[column] = blank_count
+        if missing_marker_counts:
+            failures.append(
+                f"Old missing-value markers found instead of '{INFO_UNAVAILABLE_TEXT}': {missing_marker_counts}"
+            )
+        if blank_counts:
+            failures.append(f"Blank text values found: {blank_counts}")
+
+        invalid_availability_terms = int(
+            df["availability"]
+            .astype(str)
+            .str.contains(INVALID_AVAILABILITY_PATTERN, na=False)
+            .sum()
+        )
+        if invalid_availability_terms:
+            failures.append(
+                "Availability contains shipping/delivery terms that should not be used as stock status: "
+                f"{invalid_availability_terms}"
+            )
 
         blank_product_names = int((df["Product Name"].astype(str).str.strip() == "").sum())
         if blank_product_names:
@@ -144,35 +162,12 @@ def validate_clean_file(clean_file_path):
         if invalid_discount_percent:
             failures.append(f"Discount percent outside 0-100 range found: {invalid_discount_percent}")
 
-        ai_validation_summary = {
-            "avg_data_quality_score": float(df["data_quality_score"].mean()) if row_count else None,
-            "min_data_quality_score": float(df["data_quality_score"].min()) if row_count else None,
-            "brand_validation_status_counts": df["brand_validation_status"].fillna("missing").value_counts().to_dict(),
-            "device_type_validation_status_counts": df["device_type_validation_status"]
-            .fillna("missing")
-            .value_counts()
-            .to_dict(),
-        }
-
-        invalid_brand_rows = int((df["brand_validation_status"] == "invalid_device_type").sum())
-        if invalid_brand_rows:
-            warnings.append(f"Brand values that looked like device types: {invalid_brand_rows}")
-
-        device_type_mismatch_rows = int((df["device_type_validation_status"] == "mismatch").sum())
-        if device_type_mismatch_rows:
-            warnings.append(f"Device type values corrected by AI validation: {device_type_mismatch_rows}")
-
-        low_quality_rows = int((df["data_quality_score"] < 70).sum())
-        if low_quality_rows:
-            warnings.append(f"Rows with AI validation score below 70: {low_quality_rows}")
-
     report = {
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "file_path": clean_file_path,
         "row_count": row_count,
         "min_rows": min_rows,
         "required_columns": REQUIRED_COLUMNS,
-        "ai_validation_summary": ai_validation_summary,
         "failures": failures,
         "warnings": warnings,
         "status": "failed" if failures else "passed",

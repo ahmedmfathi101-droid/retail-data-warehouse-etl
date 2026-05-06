@@ -22,13 +22,8 @@ CREATE TABLE dim_products (
     connectivity TEXT,
     product_dimensions TEXT,
     item_weight TEXT,
-    best_sellers_rank TEXT,
     product_url TEXT,
     image_url TEXT,
-    brand_validation_status VARCHAR(50),
-    device_type_validation_status VARCHAR(50),
-    data_quality_score DECIMAL(5, 2),
-    validation_notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (sku)
@@ -45,8 +40,6 @@ CREATE TABLE fact_product_snapshots (
     rating DECIMAL(3, 2),
     availability TEXT,
     seller TEXT,
-    is_sponsored BOOLEAN,
-    is_prime BOOLEAN,
     snapshot_date DATE NOT NULL DEFAULT CURRENT_DATE,
     snapshot_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -55,7 +48,6 @@ CREATE TABLE fact_product_snapshots (
 CREATE INDEX idx_dim_products_sku ON dim_products(sku);
 CREATE INDEX idx_dim_products_brand ON dim_products(brand);
 CREATE INDEX idx_dim_products_device_type ON dim_products(device_type);
-CREATE INDEX idx_dim_products_quality_score ON dim_products(data_quality_score);
 CREATE INDEX idx_fact_snapshots_date ON fact_product_snapshots(snapshot_date);
 CREATE INDEX idx_fact_snapshots_product ON fact_product_snapshots(product_id);
 CREATE INDEX idx_fact_snapshots_discount ON fact_product_snapshots(discount_percent);

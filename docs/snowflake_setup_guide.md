@@ -102,9 +102,8 @@ SELECT
   PRODUCT_NAME,
   BRAND,
   DEVICE_TYPE,
-  DATA_QUALITY_SCORE,
-  BRAND_VALIDATION_STATUS,
-  DEVICE_TYPE_VALIDATION_STATUS
+  MODEL_NUMBER,
+  STORAGE_CAPACITY
 FROM DIM_PRODUCTS
 WHERE PRODUCT_NAME IS NOT NULL
 LIMIT 20;
@@ -112,7 +111,7 @@ LIMIT 20;
 
 `PRODUCT_NAME` should contain at most five words and should not end with a preposition, conjunction, or standalone number.
 
-The Snowflake load step also backfills `PRODUCT_NAME`, `BRAND`, `DEVICE_TYPE`, and AI validation metadata for existing rows when the naming rule changes.
+The Snowflake load step also backfills `PRODUCT_NAME`, `BRAND`, and `DEVICE_TYPE` for existing rows when the naming rule changes.
 
 Validate pricing and seller snapshot fields:
 
@@ -122,13 +121,13 @@ SELECT
   ORIGINAL_PRICE,
   DISCOUNT_PERCENT,
   AVAILABILITY,
-  SELLER,
-  IS_SPONSORED,
-  IS_PRIME
+  SELLER
 FROM FACT_PRODUCT_SNAPSHOTS
 ORDER BY SNAPSHOT_TIMESTAMP DESC
 LIMIT 20;
 ```
+
+Availability should describe stock state only. Shipping and delivery text is filtered during transformation.
 
 ## 7. Dashboard Source
 

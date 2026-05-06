@@ -17,6 +17,20 @@ DEVICE_TYPE_TERMS = {
         "iphone",
         "android",
         "galaxy",
+        "foldable",
+        "flip",
+        "fold",
+    },
+    "Tablet": {
+        "tablet",
+        "ipad",
+        "tab",
+        "surface",
+    },
+    "Feature Phone": {
+        "feature phone",
+        "button phone",
+        "basic phone",
     },
     "Headphone": {
         "headphone",
@@ -43,15 +57,22 @@ BRAND_ALIASES = {
     "Anker": {"anker", "soundcore"},
     "Apple": {"apple", "iphone", "macbook", "airpods", "ipad"},
     "ASUS": {"asus", "rog", "vivobook", "zenbook", "tuf"},
+    "Benco": {"benco"},
     "Dell": {"dell", "latitude", "inspiron", "vostro", "alienware"},
     "Fresh": {"fresh"},
+    "Gionee": {"gionee"},
+    "Google": {"google", "pixel"},
     "HP": {"hp", "hewlett packard", "omen", "pavilion", "victus"},
     "Huawei": {"huawei"},
     "Honor": {"honor"},
     "Infinix": {"infinix"},
+    "Itel": {"itel"},
     "JBL": {"jbl"},
+    "Lava": {"lava"},
     "Lenovo": {"lenovo", "thinkpad", "ideapad", "loq", "legion"},
     "LG": {"lg"},
+    "Microsoft": {"microsoft", "surface"},
+    "Motorola": {"motorola", "moto"},
     "MSI": {"msi"},
     "Nokia": {"nokia"},
     "OnePlus": {"oneplus", "one plus"},
@@ -65,6 +86,7 @@ BRAND_ALIASES = {
     "Tornado": {"tornado"},
     "Toshiba": {"toshiba"},
     "UGREEN": {"ugreen"},
+    "Vivo": {"vivo"},
     "Xiaomi": {"xiaomi", "mi", "poco"},
 }
 
@@ -108,6 +130,12 @@ def infer_device_type(title, fallback_category=None):
     category_map = {
         "laptop": "Laptop",
         "smartphone": "Smartphone",
+        "mobile phone": "Smartphone",
+        "android phone": "Smartphone",
+        "iphone": "Smartphone",
+        "tablet": "Tablet",
+        "ipad": "Tablet",
+        "android tablet": "Tablet",
         "headphone": "Headphone",
         "television": "Television",
     }
@@ -154,8 +182,7 @@ def validate_product_record(record):
 
     This is intentionally local and deterministic so Airflow can run without an
     external AI API key. It behaves like a lightweight semantic classifier:
-    infer device type, infer brand, detect brand/device-type mismatches, and
-    return quality signals for warehouse analytics.
+    infer device type, infer brand, and correct brand/device-type mismatches.
     """
     title = normalize_text(record.get("title"))
     category = normalize_text(record.get("category"))
@@ -167,59 +194,26 @@ def validate_product_record(record):
     inferred_brand = infer_brand(title, scraped_brand, manufacturer)
     brand = scraped_brand or inferred_brand
 
-    notes = []
-    score = 100
-    brand_status = "valid"
-    device_type_status = "valid"
-
-    if not title:
-        notes.append("missing title")
-        score -= 30
-
     if not device_type:
-        device_type_status = "missing"
-        notes.append("device type could not be inferred")
-        score -= 20
-    elif inferred_device_type and device_type != inferred_device_type:
-        device_type_status = "mismatch"
-        notes.append(f"device type '{device_type}' conflicts with inferred '{inferred_device_type}'")
         device_type = inferred_device_type
-        score -= 15
+    elif inferred_device_type and device_type != inferred_device_type:
+        device_type = inferred_device_type
 
     normalized_brand = normalize_text(brand).lower()
     if normalized_brand in GENERIC_BRAND_VALUES:
         brand = inferred_brand
 
     if not brand:
-        brand_status = "missing"
-        notes.append("brand could not be inferred")
-        score -= 10
+        brand = inferred_brand
     elif looks_like_device_type(brand) and not is_known_brand(brand):
-        brand_status = "invalid_device_type"
-        notes.append(f"brand value '{brand}' looks like a device type")
         brand = inferred_brand
-        score -= 25
-    elif not is_known_brand(brand):
-        brand_status = "unverified"
-        notes.append(f"brand value '{brand}' is not in the known brand dictionary")
-        score -= 8
     elif scraped_brand and inferred_brand and scraped_brand != inferred_brand:
-        brand_status = "corrected"
-        notes.append(f"brand corrected from '{scraped_brand}' to '{inferred_brand}'")
         brand = inferred_brand
-        score -= 5
 
     if brand and device_type and brand.lower() == device_type.lower():
-        brand_status = "invalid_device_type"
-        notes.append("brand equals device type")
         brand = inferred_brand
-        score -= 25
 
     return {
         "brand": brand,
         "Device type": device_type,
-        "brand_validation_status": brand_status,
-        "device_type_validation_status": device_type_status,
-        "data_quality_score": max(0, min(100, score)),
-        "validation_notes": "; ".join(notes),
     }

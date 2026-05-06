@@ -40,7 +40,7 @@ PostgreSQL DW          Snowflake DW
 ## Key Features
 
 - Scrapes Amazon Egypt listing pages and optionally enriches products from detail pages.
-- Collects SKU/ASIN, title, product name, brand, device type, prices, discount, rating, seller, availability, Prime/sponsored flags, and technical specs.
+- Collects SKU/ASIN, title, product name, brand, device type, prices, discount, rating, seller, availability, and technical specs.
 - Cleans and standardizes raw product data using `pandas`.
 - Creates a compact `Product Name` field from the first useful words in the full title, trimming trailing prepositions, conjunctions, and standalone numbers.
 - Runs local AI-style semantic validation to detect column mismatches, such as a device type being loaded as a brand.
@@ -49,7 +49,7 @@ PostgreSQL DW          Snowflake DW
 - Loads the same warehouse model into Snowflake.
 - Uses upsert logic for product dimension records.
 - Backfills `PRODUCT_NAME` for existing warehouse rows when the naming rule changes.
-- Inserts historical snapshot facts for price, discount, rating, seller, availability, Prime, and sponsored tracking.
+- Inserts historical snapshot facts for price, discount, rating, seller, and availability tracking.
 - Runs data quality validation before loading.
 - Runs freshness checks after warehouse loading.
 - Provides analytical SQL queries for business insights.
@@ -87,15 +87,15 @@ retail-data-warehouse-etl/
 |   |-- analytical_queries.sql
 |   `-- init_db.sh
 |-- docs/
-|   |-- assets/
-|   |   |-- dim_products.png
-|   |   `-- fact_product_snapshots.png
 |   |-- snowflake_setup_guide.md
 |   |-- powerbi_dashboard_guide.md
 |   `-- system_check_report.md
+|-- notebooks/
+|   `-- amazon_eg_eda.ipynb
 |-- config/
 |-- data/
 |   `-- .gitkeep
+|-- run_etl.py
 |-- docker-compose.yml
 |-- requirements.txt
 |-- .env.example
@@ -130,13 +130,8 @@ Main fields:
 - `CONNECTIVITY`
 - `PRODUCT_DIMENSIONS`
 - `ITEM_WEIGHT`
-- `BEST_SELLERS_RANK`
 - `PRODUCT_URL`
 - `IMAGE_URL`
-- `BRAND_VALIDATION_STATUS`
-- `DEVICE_TYPE_VALIDATION_STATUS`
-- `DATA_QUALITY_SCORE`
-- `VALIDATION_NOTES`
 - `CREATED_AT`
 - `UPDATED_AT`
 
@@ -155,22 +150,10 @@ Main fields:
 - `RATING`
 - `AVAILABILITY`
 - `SELLER`
-- `IS_SPONSORED`
-- `IS_PRIME`
 - `SNAPSHOT_DATE`
 - `SNAPSHOT_TIMESTAMP`
 
 This model supports price trend analysis, category comparisons, product monitoring, freshness checks, and dashboard reporting.
-
-## Snowflake Warehouse Preview
-
-### `DIM_PRODUCTS`
-
-![DIM_PRODUCTS table preview](docs/assets/dim_products.png)
-
-### `FACT_PRODUCT_SNAPSHOTS`
-
-![FACT_PRODUCT_SNAPSHOTS table preview](docs/assets/fact_product_snapshots.png)
 
 ## Airflow DAG
 
@@ -228,15 +211,16 @@ DATA_FRESHNESS_MAX_HOURS=30
 ### 4. Configure Scraping Depth
 
 ```env
-SCRAPE_SEARCH_TERMS=laptop,smartphone,headphone,television
+SCRAPE_SEARCH_TERMS=laptop,tablet,ipad,android tablet,samsung tablet,lenovo tablet,huawei tablet,xiaomi tablet,smartphone,mobile phone,android phone,iphone,samsung phone,xiaomi phone,redmi phone,oppo phone,realme phone,infinix phone,tecno phone,nokia phone,honor phone,huawei phone,oneplus phone,feature phone,foldable phone
 SCRAPE_SEARCH_PAGES=2
 SCRAPE_DETAIL_PAGES=true
-SCRAPE_DETAIL_LIMIT_PER_RUN=80
-SCRAPE_DETAIL_DELAY_MIN_SECONDS=1
-SCRAPE_DETAIL_DELAY_MAX_SECONDS=2.5
+SCRAPE_DETAIL_LIMIT_PER_RUN=300
+SCRAPE_DETAIL_DELAY_MIN_SECONDS=2
+SCRAPE_DETAIL_DELAY_MAX_SECONDS=5
+SCRAPE_MERGE_WITH_EXISTING_RAW=true
 ```
 
-Detail-page enrichment extracts brand, manufacturer, model, color, memory, storage, display, seller, availability, and other technical fields. The limit and delay controls reduce the risk of Amazon blocking the scraper.
+Detail-page enrichment extracts brand, manufacturer, model, color, memory, storage, display, seller, availability, list price, and discount fields. Listing pages are collected before detail pages so broad mobile/tablet searches are not blocked by early deep enrichment. `SCRAPE_DETAIL_LIMIT_PER_RUN` caps new detail pages per run so broad searches can finish without over-hitting Amazon. Detail results are cached across runs, and `SCRAPE_MERGE_WITH_EXISTING_RAW=true` prevents a blocked scrape from replacing a richer previous raw dataset with a smaller one. The delay controls reduce the risk of Amazon blocking the scraper.
 
 ### 5. Configure Snowflake
 
@@ -316,7 +300,13 @@ docker compose exec airflow-scheduler airflow tasks states-for-dag-run amazon_eg
 
 ## Pipeline Output
 
-The scraper writes raw JSON files to `data/`. The transformation step writes cleaned CSV files to `data/`. The load steps insert cleaned records into PostgreSQL and Snowflake when Snowflake is enabled.
+The scraper writes raw JSON files to `data/`. The transformation step writes cleaned CSV files to `data/` with these columns only:
+
+```text
+sku,title,Product Name,brand,price,original_price,discount_percent,rating,availability,seller,product_url,image_url,Device type,model_number,color,screen_size,ram_memory,storage_capacity,processor,gpu,operating_system,display_resolution,connectivity,product_dimensions,item_weight
+```
+
+The load steps insert cleaned records into PostgreSQL and Snowflake when Snowflake is enabled. Internal warehouse metadata columns are generated during load and are not added back to the cleaned CSV.
 
 ## Data Quality
 
@@ -327,11 +317,11 @@ The `validate_clean_product_data` task checks:
 - Critical fields are not null.
 - Prices are not negative.
 - Ratings are between 0 and 5.
+- Missing text values use `Info is not available now.` instead of null or old placeholders.
+- `Availability` does not contain shipping or delivery text.
 - `Product Name` is not blank.
 - `Product Name` is capped at five words.
 - `Product Name` does not end with a preposition, conjunction, or standalone number.
-- AI validation flags suspicious brand/device-type values.
-- AI validation writes `brand_validation_status`, `device_type_validation_status`, `data_quality_score`, and `validation_notes`.
 - Duplicate `sku` rows are removed during transformation.
 
 The latest quality report is written to:
@@ -379,7 +369,6 @@ Included query themes:
 - Largest observed price changes
 - Warehouse freshness monitoring
 - Product name quality audit
-- Brand/device-type validation audit
 - Discount and seller opportunity analysis
 
 ## Power BI Dashboard

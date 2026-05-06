@@ -16,34 +16,14 @@ CLEAN_COLUMNS = [
     'Product Name',
     'brand',
     'price',
-    'currency',
     'original_price',
     'discount_percent',
     'rating',
     'availability',
     'seller',
-    'is_sponsored',
-    'is_prime',
-    'model_number',
-    'color',
-    'screen_size',
-    'ram_memory',
-    'storage_capacity',
-    'processor',
-    'gpu',
-    'operating_system',
-    'display_resolution',
-    'connectivity',
-    'product_dimensions',
-    'item_weight',
-    'best_sellers_rank',
     'product_url',
     'image_url',
     'Device type',
-    'brand_validation_status',
-    'device_type_validation_status',
-    'data_quality_score',
-    'validation_notes',
 ]
 
 PRODUCT_NAME_STOP_WORDS = {'for', 'to', 'up'}
@@ -80,6 +60,18 @@ PRODUCT_NAME_TRAILING_STOP_WORDS = {
 PRODUCT_NAME_SEPARATOR_PATTERN = re.compile(r'[,:\-_]')
 PRODUCT_NAME_NUMBER_PATTERN = re.compile(r'\d+(?:[.,]\d+)?')
 PRICE_NUMBER_PATTERN = re.compile(r'[\d,.]+')
+INFO_UNAVAILABLE_TEXT = 'Info is not available now.'
+MISSING_TEXT_MARKERS = {
+    '',
+    'not available',
+    'unknown',
+    'unknown seller',
+    'nan',
+    'none',
+    'null',
+    INFO_UNAVAILABLE_TEXT.lower(),
+}
+INVALID_AVAILABILITY_PATTERN = re.compile(r'\b(?:ship|ships|shipping|delivery|deliver|delivered)\b', re.I)
 
 
 def _is_trailing_product_name_noise(word):
@@ -115,6 +107,29 @@ def clean_text(value):
     return text or None
 
 
+def is_missing_text(value):
+    text = clean_text(value)
+    return text is None or text.lower() in MISSING_TEXT_MARKERS
+
+
+def clean_availability(value):
+    text = clean_text(value)
+    if text is None:
+        return INFO_UNAVAILABLE_TEXT
+
+    if INVALID_AVAILABILITY_PATTERN.search(text):
+        return INFO_UNAVAILABLE_TEXT
+
+    normalized = re.sub(r'[^a-z]+', '', text.lower())
+    if normalized in {'instock', 'available'}:
+        return 'In Stock'
+    if normalized in {'outofstock', 'currentlyunavailable', 'unavailable'}:
+        return 'Currently unavailable'
+    if text.lower() in MISSING_TEXT_MARKERS:
+        return INFO_UNAVAILABLE_TEXT
+    return text
+
+
 def clean_price(value):
     text = clean_text(value)
     if not text:
@@ -139,15 +154,6 @@ def extract_currency(*values):
     if re.search(r'\bEGP\b|ج\.م|جنيه', text, re.I):
         return 'EGP'
     return 'EGP' if text else None
-
-
-def clean_bool(value):
-    if isinstance(value, bool):
-        return value
-    text = clean_text(value)
-    if not text:
-        return False
-    return text.lower() in {'1', 'true', 'yes', 'y'}
 
 
 def calculate_discount_percent(price, original_price):
@@ -222,10 +228,14 @@ def transform_amazon_eg_data(input_file_path):
             df['original_price'] = None
         df['original_price'] = df['original_price'].apply(clean_price)
         df['currency'] = df.apply(lambda row: extract_currency(row.get('price'), row.get('original_price')), axis=1)
-        df['discount_percent'] = df.apply(
+        if 'discount_percent' not in df.columns:
+            df['discount_percent'] = None
+        scraped_discount_percent = df['discount_percent'].apply(clean_price)
+        calculated_discount_percent = df.apply(
             lambda row: calculate_discount_percent(row.get('price'), row.get('original_price')),
             axis=1,
         )
+        df['discount_percent'] = scraped_discount_percent.combine_first(calculated_discount_percent)
         
         # Clean Rating (e.g., "4.5 out of 5 stars" -> 4.5)
         def extract_rating(rating_str):
@@ -256,11 +266,8 @@ def transform_amazon_eg_data(input_file_path):
             'connectivity',
             'product_dimensions',
             'item_weight',
-            'best_sellers_rank',
             'availability',
             'seller',
-            'is_sponsored',
-            'is_prime',
         ]:
             if optional_col not in df.columns:
                 df[optional_col] = None
@@ -268,14 +275,6 @@ def transform_amazon_eg_data(input_file_path):
         validation_results = df.apply(lambda row: validate_product_record(row.to_dict()), axis=1)
         df['brand'] = validation_results.apply(lambda result: result['brand'])
         df['Device type'] = validation_results.apply(lambda result: result['Device type'])
-        df['brand_validation_status'] = validation_results.apply(lambda result: result['brand_validation_status'])
-        df['device_type_validation_status'] = validation_results.apply(
-            lambda result: result['device_type_validation_status']
-        )
-        df['data_quality_score'] = validation_results.apply(lambda result: result['data_quality_score'])
-        df['validation_notes'] = validation_results.apply(lambda result: result['validation_notes'])
-        df['is_sponsored'] = df['is_sponsored'].apply(clean_bool)
-        df['is_prime'] = df['is_prime'].apply(clean_bool)
         
         # Select and rename columns
         cols_to_keep = {
@@ -284,14 +283,14 @@ def transform_amazon_eg_data(input_file_path):
             'Product Name': 'Product Name',
             'brand': 'brand',
             'price': 'price',
-            'currency': 'currency',
             'original_price': 'original_price',
             'discount_percent': 'discount_percent',
             'rating_score': 'rating',
             'availability': 'availability',
             'seller': 'seller',
-            'is_sponsored': 'is_sponsored',
-            'is_prime': 'is_prime',
+            'product_url': 'product_url',
+            'image_url': 'image_url',
+            'Device type': 'Device type',
             'model_number': 'model_number',
             'color': 'color',
             'screen_size': 'screen_size',
@@ -304,14 +303,6 @@ def transform_amazon_eg_data(input_file_path):
             'connectivity': 'connectivity',
             'product_dimensions': 'product_dimensions',
             'item_weight': 'item_weight',
-            'best_sellers_rank': 'best_sellers_rank',
-            'product_url': 'product_url',
-            'image_url': 'image_url',
-            'Device type': 'Device type',
-            'brand_validation_status': 'brand_validation_status',
-            'device_type_validation_status': 'device_type_validation_status',
-            'data_quality_score': 'data_quality_score',
-            'validation_notes': 'validation_notes',
         }
         
         # Ensure all columns exist before renaming (in case scraper missed something)
@@ -324,9 +315,11 @@ def transform_amazon_eg_data(input_file_path):
             'title',
             'Product Name',
             'brand',
-            'currency',
             'availability',
             'seller',
+            'product_url',
+            'image_url',
+            'Device type',
             'model_number',
             'color',
             'screen_size',
@@ -339,19 +332,37 @@ def transform_amazon_eg_data(input_file_path):
             'connectivity',
             'product_dimensions',
             'item_weight',
-            'best_sellers_rank',
-            'product_url',
-            'image_url',
-            'Device type',
-            'brand_validation_status',
-            'device_type_validation_status',
-            'validation_notes',
         ]
         for column in text_columns:
             df[column] = df[column].apply(clean_text)
         
         # Drop rows without an SKU or Price
         df = df.dropna(subset=['sku', 'price'])
+
+        numeric_defaults = {
+            'original_price': df['price'],
+            'discount_percent': 0,
+            'rating': 0,
+        }
+        for column, default_value in numeric_defaults.items():
+            df[column] = df[column].fillna(default_value)
+
+        invalid_original_price = df['original_price'] < df['price']
+        if invalid_original_price.any():
+            logger.warning(
+                "Resetting %s rows where original_price is lower than price.",
+                int(invalid_original_price.sum()),
+            )
+            df.loc[invalid_original_price, 'original_price'] = df.loc[invalid_original_price, 'price']
+            df.loc[invalid_original_price, 'discount_percent'] = 0
+
+        for column in text_columns:
+            if column == 'availability':
+                df[column] = df[column].apply(clean_availability)
+            else:
+                df[column] = df[column].apply(
+                    lambda value: INFO_UNAVAILABLE_TEXT if is_missing_text(value) else value
+                )
 
         duplicate_count = df.duplicated(subset=['sku']).sum()
         if duplicate_count:

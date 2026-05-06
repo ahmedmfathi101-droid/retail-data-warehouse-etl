@@ -41,8 +41,8 @@ Recommended analysis columns:
 ```text
 DIM_PRODUCTS[BRAND]
 DIM_PRODUCTS[DEVICE_TYPE]
-DIM_PRODUCTS[DATA_QUALITY_SCORE]
-DIM_PRODUCTS[BRAND_VALIDATION_STATUS]
+DIM_PRODUCTS[STORAGE_CAPACITY]
+DIM_PRODUCTS[RAM_MEMORY]
 FACT_PRODUCT_SNAPSHOTS[DISCOUNT_PERCENT]
 FACT_PRODUCT_SNAPSHOTS[AVAILABILITY]
 FACT_PRODUCT_SNAPSHOTS[SELLER]
@@ -61,8 +61,6 @@ Average Rating = AVERAGE(FACT_PRODUCT_SNAPSHOTS[RATING])
 
 Average Discount = AVERAGE(FACT_PRODUCT_SNAPSHOTS[DISCOUNT_PERCENT])
 
-Average Data Quality Score = AVERAGE(DIM_PRODUCTS[DATA_QUALITY_SCORE])
-
 Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 ```
 
@@ -70,7 +68,7 @@ Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 
 ### Executive Overview
 
-- Cards: Total Products, Average Price, Average Rating, Average Discount, Average Data Quality Score, Latest Snapshot.
+- Cards: Total Products, Average Price, Average Rating, Average Discount, Latest Snapshot.
 - Line chart: Average Price by Snapshot Date.
 - Bar chart: Product Count by Brand and Device Type.
 
@@ -84,6 +82,6 @@ Latest Snapshot = MAX(FACT_PRODUCT_SNAPSHOTS[SNAPSHOT_TIMESTAMP])
 
 - Card: Latest Snapshot.
 - Card: Snapshot Count.
-- Table: products with null rating, missing product name, low data quality score, or validation status not equal to `valid`.
-- Bar chart: Product Count by Brand Validation Status.
+- Table: products with placeholder values, missing ratings, or availability that needs review.
+- Bar chart: Product Count by Availability.
 - Alert rule in Power BI Service when Latest Snapshot is older than the expected schedule.

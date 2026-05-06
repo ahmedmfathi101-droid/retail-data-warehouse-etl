@@ -13,6 +13,13 @@ x-airflow-common:
     DW_CONN_STR: postgresql+psycopg2://dw_user:dw_pass@postgres/retail_dw
     DQ_MIN_ROWS: ${DQ_MIN_ROWS:-1}
     DATA_FRESHNESS_MAX_HOURS: ${DATA_FRESHNESS_MAX_HOURS:-30}
+    SCRAPE_SEARCH_TERMS: ${SCRAPE_SEARCH_TERMS:-laptop,tablet,ipad,android tablet,samsung tablet,lenovo tablet,huawei tablet,xiaomi tablet,smartphone,mobile phone,android phone,iphone,samsung phone,xiaomi phone,redmi phone,oppo phone,realme phone,infinix phone,tecno phone,nokia phone,honor phone,huawei phone,oneplus phone,feature phone,foldable phone}
+    SCRAPE_SEARCH_PAGES: ${SCRAPE_SEARCH_PAGES:-2}
+    SCRAPE_DETAIL_PAGES: ${SCRAPE_DETAIL_PAGES:-true}
+    SCRAPE_DETAIL_LIMIT_PER_RUN: ${SCRAPE_DETAIL_LIMIT_PER_RUN:-300}
+    SCRAPE_DETAIL_DELAY_MIN_SECONDS: ${SCRAPE_DETAIL_DELAY_MIN_SECONDS:-2}
+    SCRAPE_DETAIL_DELAY_MAX_SECONDS: ${SCRAPE_DETAIL_DELAY_MAX_SECONDS:-5}
+    SCRAPE_MERGE_WITH_EXISTING_RAW: ${SCRAPE_MERGE_WITH_EXISTING_RAW:-true}
     SNOWFLAKE_ENABLED: ${SNOWFLAKE_ENABLED:-false}
     SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
     SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
