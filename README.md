@@ -3,7 +3,7 @@
 
 An end-to-end data engineering project that extracts near real-time retail product data from Amazon Egypt (`amazon.eg`) using web scraping, cleans and transforms it with `pandas`, and loads it into PostgreSQL and Snowflake data warehouses.
 
-The full workflow is orchestrated and scheduled with Apache Airflow. Prefect is not used in this version.
+The full workflow is orchestrated and scheduled with Apache Airflow.
 
 ## Overview
 
