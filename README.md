@@ -1,4 +1,5 @@
-# Retail Data Warehouse ETL
+# MarketPulse ETL
+### Retail Intelligence Data Pipeline
 
 An end-to-end data engineering project that extracts near real-time retail product data from Amazon Egypt (`amazon.eg`) using web scraping, cleans and transforms it with `pandas`, and loads it into PostgreSQL and Snowflake data warehouses.
 
