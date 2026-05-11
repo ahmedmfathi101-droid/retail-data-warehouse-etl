@@ -1,4 +1,4 @@
-# Retail Data Warehouse ETL - Amazon Egypt
+# Retail Data Warehouse ETL
 
 An end-to-end data engineering project that extracts near real-time retail product data from Amazon Egypt (`amazon.eg`) using web scraping, cleans and transforms it with `pandas`, and loads it into PostgreSQL and Snowflake data warehouses.
 
@@ -9,6 +9,9 @@ The full workflow is orchestrated and scheduled with Apache Airflow. Prefect is 
 This project demonstrates a complete ETL pipeline for retail analytics without relying on a public API. The scraper collects Amazon Egypt product search results, the transformation layer standardizes the raw data, and the loading layer persists product dimensions and historical product snapshots for analytics and dashboarding.
 
 The pipeline includes automated execution, Airflow logging, data quality checks, warehouse freshness validation, analytical SQL queries, and Power BI dashboard guidance.
+
+<img width="2400" height="1400" alt="etl-overview" src="https://github.com/user-attachments/assets/57c32d74-9fb7-4468-a47d-431b58bcc8a9" />
+
 
 ## Architecture
 
@@ -506,6 +509,16 @@ Dashboard setup, relationships, DAX measures, page descriptions, screenshots, an
 - `.env.example` contains placeholders only.
 - Rotate Snowflake credentials if they are ever exposed publicly.
 
+## Responsible Scraping Notice
+
+This project was developed for educational and portfolio purposes only. The scraper is designed to follow responsible scraping practices by collecting only publicly available product information and avoiding aggressive request patterns.
+
+To reduce unnecessary load on the target website, the scraping workflow should use request delays, limited request rates, and retry/backoff handling when pages return errors such as CAPTCHA, bot protection, or 503 responses.
+
+No login-protected, private, personal, or sensitive user data is collected. Credentials, API keys, and environment variables are excluded from the repository.
+
+Anyone reusing or modifying this project is responsible for reviewing and complying with the target website's Terms of Service, robots.txt rules, and applicable laws before running any scraping workflow.
+
 ## System Check
 
 The latest local validation summary is available in [docs/system_check_report.md](docs/system_check_report.md).
@@ -513,3 +526,4 @@ The latest local validation summary is available in [docs/system_check_report.md
 ## License
 
 This project is licensed under the MIT License.
+
