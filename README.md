@@ -53,7 +53,7 @@ PostgreSQL DW          Snowflake DW
 - Runs data quality validation before loading.
 - Runs freshness checks after warehouse loading.
 - Provides analytical SQL queries for business insights.
-- Includes Power BI dashboard setup guidance.
+- Includes a completed Power BI dashboard guide with report screenshots and business insights.
 - Uses Apache Airflow for scheduling, orchestration, retries, and task logging.
 
 ## Technology Stack
@@ -87,6 +87,8 @@ retail-data-warehouse-etl/
 |   |-- analytical_queries.sql
 |   `-- init_db.sh
 |-- docs/
+|   |-- assets/
+|   |   `-- powerbi/
 |   |-- snowflake_setup_guide.md
 |   |-- powerbi_dashboard_guide.md
 |   `-- system_check_report.md
@@ -235,6 +237,7 @@ SNOWFLAKE_WAREHOUSE=COMPUTE_WH
 SNOWFLAKE_DATABASE=RETAIL_DW
 SNOWFLAKE_SCHEMA=PUBLIC
 SNOWFLAKE_ROLE=
+SNOWFLAKE_FAIL_ON_ERROR=false
 ```
 
 `SNOWFLAKE_ACCOUNT` is the account identifier from your Snowflake URL. For example, if the URL is:
@@ -250,6 +253,8 @@ SNOWFLAKE_ACCOUNT=abc12345.us-east-1
 ```
 
 Full Snowflake setup and load instructions are available in [docs/snowflake_setup_guide.md](docs/snowflake_setup_guide.md).
+
+By default, temporary Snowflake connection failures are logged and skipped so the PostgreSQL load can still complete. Set `SNOWFLAKE_FAIL_ON_ERROR=true` if Snowflake should fail the pipeline.
 
 ### 6. Start Services
 
@@ -278,6 +283,15 @@ admin / admin
 
 ## Running the Pipeline
 
+The pipeline can be run in two ways:
+
+- Airflow, recommended for scheduled warehouse refreshes.
+- `run_etl.py`, useful for local development, debugging, or one-off refreshes.
+
+Before running either option, make sure `.env` exists and contains the PostgreSQL and optional Snowflake settings described above.
+
+### Option A: Run with Airflow
+
 From the Airflow UI:
 
 1. Open `http://localhost:8080`.
@@ -296,6 +310,81 @@ Check task states:
 
 ```bash
 docker compose exec airflow-scheduler airflow tasks states-for-dag-run amazon_eg_etl <dag_run_id>
+```
+
+The DAG runs this flow:
+
+```text
+scrape_amazon_eg_data
+    -> transform_amazon_eg_data
+    -> validate_clean_product_data
+    -> [load_amazon_eg_data_to_postgres, load_amazon_eg_data_to_snowflake]
+    -> check_warehouse_freshness
+```
+
+### Option B: Run Locally with `run_etl.py`
+
+Create and activate a Python environment, then install dependencies:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Run the full pipeline:
+
+```powershell
+python run_etl.py
+```
+
+Reuse the existing raw JSON and rerun transform, validation, and load:
+
+```powershell
+python run_etl.py --skip-scrape
+```
+
+Validate and load the existing clean CSV only:
+
+```powershell
+python run_etl.py --load-only
+```
+
+`run_etl.py` executes the same core stages as the Airflow DAG:
+
+1. Extract Amazon Egypt product data into `data/raw_amazon_eg_products.json`.
+2. Transform the raw JSON into `data/clean_amazon_eg_products.csv`.
+3. Validate required fields, row counts, ratings, prices, product names, and duplicates.
+4. Load PostgreSQL and Snowflake when Snowflake is enabled.
+
+### Useful Validation Commands
+
+Check generated local files:
+
+```powershell
+Get-ChildItem data
+```
+
+Check the latest data quality report:
+
+```powershell
+Get-Content data\data_quality_report.json
+```
+
+Validate Snowflake after a successful load:
+
+```sql
+USE DATABASE RETAIL_DW;
+USE SCHEMA PUBLIC;
+
+SELECT COUNT(*) AS product_count
+FROM DIM_PRODUCTS;
+
+SELECT COUNT(*) AS snapshot_count
+FROM FACT_PRODUCT_SNAPSHOTS;
+
+SELECT MAX(SNAPSHOT_TIMESTAMP) AS latest_snapshot
+FROM FACT_PRODUCT_SNAPSHOTS;
 ```
 
 ## Pipeline Output
@@ -382,7 +471,31 @@ Recommended tables:
 
 Connect `DIM_PRODUCTS` to `FACT_PRODUCT_SNAPSHOTS` by `PRODUCT_ID`.
 
-Dashboard setup, relationships, and DAX measures are documented in [docs/powerbi_dashboard_guide.md](docs/powerbi_dashboard_guide.md).
+The completed report includes six pages:
+
+- Executive Overview
+- Brand and Device Analysis
+- Data Quality and Freshness
+- Discount Opportunity
+- Price Trends
+- Product Trends
+
+Captured dashboard highlights from May 10, 2026:
+
+- About `7K` products and `96K` to `103K` product snapshots.
+- Average price around `5.00K`.
+- Average rating `2.93`.
+- Average discount `2.95`.
+- Data quality score `100.0%`.
+- Warehouse freshness status `Fresh`.
+- Smartphones are the largest device type at about `67.62%` of products.
+- Apple has the highest product coverage in the captured report, followed by Samsung, Redmi, Xiaomi, Huawei, Honor, Infinix, Oppo, Realme, and Tecno.
+
+![Executive Overview](docs/assets/powerbi/executive-overview.png)
+
+![Data Quality and Freshness](docs/assets/powerbi/data-quality-freshness.png)
+
+Dashboard setup, relationships, DAX measures, page descriptions, screenshots, and insights are documented in [docs/powerbi_dashboard_guide.md](docs/powerbi_dashboard_guide.md).
 
 ## Important Notes
 
