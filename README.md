@@ -39,6 +39,8 @@ PostgreSQL DW          Snowflake DW
                   v
           SQL Analytics / Power BI
 ```
+<img width="2200" height="2600" alt="etl-architecture" src="https://github.com/user-attachments/assets/357a1a40-7663-46f0-b3d6-d5323c7cb6be" />
+
 
 ## Key Features
 
